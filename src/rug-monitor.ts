@@ -1,6 +1,5 @@
-// src/rug-monitor.ts  ←  THIS IS THE REAL RUG MONITOR (runs separately)
-import { Helius } from "helius-sdk";
-import { bot } from "./index.js";
+import { Helius, TransactionType, WebhookType } from "helius-sdk"; // ← FIXED: Import enums
+import { bot } from "./index.js"; // ← FIXED: Now exported
 import { userData } from "./index.js";
 
 const helius = new Helius(process.env.HELIUS_API_KEY!);
@@ -31,11 +30,11 @@ export async function watchToken(tokenMint: string, userId: number) {
   }
 
   // Create dedicated webhook just for this token
-  await helius.createWebhook({
+  await helius.createWebhook({ // ← FIXED: Proper enum types
     webhookURL: `${process.env.RAILWAY_STATIC_URL}/rug-alert`,
-    transactionTypes: ["ANY"],
+    transactionTypes: [TransactionType.ANY], // ← FIXED: Enum
     accountAddresses: addresses,
-    webhookType: "enhanced"
+    webhookType: WebhookType.ENHANCED // ← FIXED: Enum
   }).catch(() => {});
 
   bot.telegram.sendMessage(userId, `*FULL MONITORING ACTIVE*\nDev dump, LP burn, whale sell → instant alert`, { parse_mode: "Markdown" });
@@ -77,4 +76,5 @@ app.post("/rug-alert", async (req, res) => {
   res.send("OK");
 });
 
-app.listen(4000, () => console.log("REAL RUG MONITOR LIVE on port 4000 → /rug-alert"));
+const PORT = process.env.PORT || 4000; // ← Use different port if needed
+app.listen(PORT, () => console.log(`REAL RUG MONITOR LIVE on port ${PORT} → /rug-alert`));
