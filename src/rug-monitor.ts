@@ -1,10 +1,12 @@
-process.env.UV_THREADPOOL_SIZE = "128";
+// src/rug-monitor.ts  ← FINAL VERSION (no more port conflicts)
 import { Helius, TransactionType, WebhookType } from "helius-sdk";
 import { bot } from "./index.js";
 import express, { Request, Response } from "express";
 
-const helius = new Helius(process.env.HELIUS_API_KEY!);
+// Silence bigint warning
+process.env.UV_THREADPOOL_SIZE = "128";
 
+const helius = new Helius(process.env.HELIUS_API_KEY!);
 const watching = new Map<string, number[]>();
 
 export async function watchToken(tokenMint: string, userId: number) {
@@ -37,18 +39,20 @@ export async function watchToken(tokenMint: string, userId: number) {
   bot.telegram.sendMessage(userId, `*FULL MONITORING ACTIVE*`, { parse_mode: "Markdown" });
 }
 
+// ONE SINGLE EXPRESS APP — shared port with main bot
 const app = express();
 app.use(express.json({ limit: "20mb" }));
 
+// Rug alert endpoint
 app.post("/rug-alert", async (req: Request, res: Response) => {
   const txs = req.body;
 
   for (const tx of txs) {
-    const bigMove = tx.tokenTransfers?.some((t: any) => Number(t.tokenAmount?.amount || 0) > 500_000_000);
-    const lpBurn = tx.accountData?.some((a: any) => a.nativeBalanceChange < 0);
-    const freeze = tx.type?.includes("REVOKE") || tx.type?.includes("FREEZE");
+    const hasBigMove = tx.tokenTransfers?.some((t: any) => Number(t.tokenAmount?.amount || 0) > 500_000_000);
+    const hasBurn = tx.type?.includes("BURN");
+    const hasFreeze = tx.type?.includes("REVOKE") || tx.type?.includes("FREEZE");
 
-    if (bigMove || lpBurn || freeze) {
+    if (hasBigMove || hasBurn || hasFreeze) {
       const mint = tx.tokenTransfers?.[0]?.mint || "unknown";
       const users = watching.get(mint) || [];
       for (const userId of users) {
@@ -62,7 +66,4 @@ app.post("/rug-alert", async (req: Request, res: Response) => {
   res.send("OK");
 });
 
-const PORT = process.env.PORT ? Number(process.env.PORT) + 1 : 4001;
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Rug monitor LIVE on port ${PORT} → /rug-alert`);
-});
+export default app; // Export so main file can use it
