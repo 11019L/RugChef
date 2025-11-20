@@ -1,3 +1,4 @@
+process.env.UV_THREADPOOL_SIZE = "128";
 import { Helius, TransactionType, WebhookType } from "helius-sdk";
 import { bot } from "./index.js";
 import express, { Request, Response } from "express";
@@ -61,4 +62,7 @@ app.post("/rug-alert", async (req: Request, res: Response) => {
   res.send("OK");
 });
 
-app.listen(4000, () => console.log("Rug monitor live on /rug-alert"));
+const PORT = process.env.PORT ? Number(process.env.PORT) + 1 : 4001;
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Rug monitor LIVE on port ${PORT} → /rug-alert`);
+});
