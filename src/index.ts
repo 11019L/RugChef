@@ -14,25 +14,28 @@ export const userData = new Map<number, {
   expires?: number;
 }>();
 
-bot.start((ctx) => {
+bot.start(async (ctx) => {
   const userId = ctx.from!.id;
   if (!userData.has(userId)) {
     userData.set(userId, { trials: 0, plan: "free" });
   }
 
-  ctx.replyWithMarkdownV2(
+  await ctx.reply(
     `*WELCOME TO RUGCHEF*\n\n` +
-    `You get *2 free token protections* right now\\.\n\n` +
+    `You get *2 free token protections* right now.\n\n` +
     `After that:\n` +
-    `• Monthly → \\$20 or 0\\.1 SOL\n` +
-    `• Lifetime → \\$100 or 0\\.45 SOL \\(best value\\)\n\n` +
-    `*Payment wallet \\(SOL\\):*\n` +
+    `• Monthly → $20 or 0.1 SOL\n` +
+    `• Lifetime → $100 or 0.45 SOL (best value)\n\n` +
+    `*Payment wallet (SOL):*\n` +
     `\`${PAYMENT_WALLET}\`\n\n` +
     `*VERY IMPORTANT:*\n` +
     `When paying, write your Telegram ID in the memo\n` +
     `→ Get your ID from @userinfobot\n\n` +
-    `Just send any token address \\(CA\\) below and I start watching\\!`,
-    { disable_web_page_preview: true } as const   // ← this fixes the TS error
+    `Just send any token address (CA) below and I start watching!`,
+    { 
+      parse_mode: "Markdown",
+      disable_web_page_preview: true 
+    }
   );
 });
 
