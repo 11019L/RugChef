@@ -72,3 +72,10 @@ bot.on("text", async (ctx) => { // ← FIXED: Proper scope for 'text' and 'ctx'
 
 bot.launch();
 console.log("RugShield FULLY LIVE");
+
+import rugMonitor from "./rug-monitor.js";
+
+const PORT = process.env.PORT || 3000;
+rugMonitor.listen(PORT, "0.0.0.0", () => {
+  console.log(`Rug monitor + main bot running on port ${PORT}`);
+});
