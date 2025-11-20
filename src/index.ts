@@ -20,24 +20,20 @@ bot.start((ctx) => {
     userData.set(userId, { trials: 0, plan: "free" });
   }
 
-  ctx.replyWithMarkdownV2(`
-* WELCOME TO RUGCHEF *
-
-You get *2 free token protections* right now.
-
-After that:
-• Monthly → $20 or 0.1 SOL  
-• Lifetime → $100 or 0.45 SOL (best value)
-
-*Payment wallet (SOL):*
-\`${PAYMENT_WALLET}\`
-
-*VERY IMPORTANT:*  
-When paying, write your Telegram ID in the memo  
-→ Get your ID from @userinfobot
-
-Just send any token address (CA) below and I start watching!
-  `);
+  ctx.replyWithMarkdownV2(
+    `*WELCOME TO RUGCHEF* 🧑‍🍳\n\n` +
+    `You get *2 free token protections* right now\\.\n\n` +
+    `After that:\n` +
+    `• Monthly → \\$20 or 0\\.1 SOL\n` +
+    `• Lifetime → \\$100 or 0\\.45 SOL \\(best value\\)\n\n` +
+    `*Payment wallet \\(SOL\\):*\n` +
+    `\`${PAYMENT_WALLET}\`\n\n` +
+    `*VERY IMPORTANT:* \n` +
+    `When paying, write your Telegram ID in the memo\n` +
+    `→ Get your ID from @userinfobot\n\n` +
+    `Just send any token address \\(CA\\) below and I start watching\\!`,
+    { disable_web_page_preview: true }
+  );
 });
 
 bot.on("text", (ctx) => {
