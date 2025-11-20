@@ -1,6 +1,9 @@
 import { Telegraf } from "telegraf";
 import dotenv from "dotenv";
 dotenv.config();
+import { watchToken } from "./rug-monitor.js";
+// ... inside your text handler, after they are allowed to protect:
+watchToken(text, ctx.from!.id);
 
 const bot = new Telegraf(process.env.BOT_TOKEN!);
 
