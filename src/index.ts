@@ -1,90 +1,74 @@
 import { Telegraf } from "telegraf";
 import dotenv from "dotenv";
-dotenv.config();
 import { watchToken } from "./rug-monitor.js";
-// ... inside your text handler, after they are allowed to protect:
-watchToken(text, ctx.from!.id);
+dotenv.config();
 
 const bot = new Telegraf(process.env.BOT_TOKEN!);
-
-// CHANGE THIS TO YOUR REAL SOL WALLET
+export { bot }; // ← FIXED: Export for rug-monitor
 export const PAYMENT_WALLET = process.env.PAYMENT_WALLET!;
 
-// Store user data (shared with webhook)
+// User storage
 export const userData = new Map<number, {
   trials: number;
   plan: "free" | "monthly" | "lifetime";
   expires?: number;
+  tokens: string[];
 }>();
 
 bot.start(async (ctx) => {
-  const userId = ctx.from!.id;
-  if (!userData.has(userId)) {
-    userData.set(userId, { trials: 0, plan: "free" });
+  const id = ctx.from!.id;
+  if (!userData.has(id)) {
+    userData.set(id, { trials: 0, plan: "free", tokens: [] });
   }
 
   await ctx.reply(
     `*WELCOME TO RUGCHEF*\n\n` +
-    `You get *2 free token protections* right now.\n\n` +
-    `After that:\n` +
-    `• Monthly → $20 or 0.1 SOL\n` +
-    `• Lifetime → $100 or 0.45 SOL (best value)\n\n` +
-    `*Payment wallet (SOL):*\n` +
-    `\`${PAYMENT_WALLET}\`\n\n` +
-    `*VERY IMPORTANT:*\n` +
-    `When paying, write your Telegram ID in the memo\n` +
-    `→ Get your ID from @userinfobot\n\n` +
-    `Just send any token address (CA) below and I start watching!`,
+    `• 2 free tokens\n` +
+    `• Monthly → 0.1 SOL ($20)\n` +
+    `• Lifetime → 0.45 SOL ($100)\n\n` +
+    `*Wallet:* \`${PAYMENT_WALLET}\`\n` +
+    `*Memo:* your Telegram ID (from @userinfobot)\n\n` +
+    `Send any token CA → I watch dev + LP 24/7`,
     { parse_mode: "Markdown" }
   );
 });
 
-bot.on("text", (ctx) => {
-  const userId = ctx.from!.id;
-  const text = ctx.message?.text?.trim() || "";
-  const data = userData.get(userId)!;
+bot.on("text", async (ctx) => { // ← FIXED: Proper scope for 'text' and 'ctx'
+  const id = ctx.from!.id;
+  const text = ctx.message?.text?.trim() || ""; // ← FIXED: 'text' defined here
+  const data = userData.get(id)!;
 
-  // Check monthly expiry
+  if (text.length < 32 || text.length > 44) return;
+
+  // Monthly expiry
   if (data.plan === "monthly" && data.expires! < Date.now()) {
     data.plan = "free";
-    data.expires = undefined;
   }
 
-  // Detect token CA
-  if (text.length >= 32 && text.length <= 44) {
-    if (data.plan === "monthly" || data.plan === "lifetime") {
-      return ctx.reply(`Protected ${text}\nYou are ${data.plan.toUpperCase()} — unlimited tokens!`);
-    }
-
-    if (data.trials < 2) {
-      data.trials += 1;
-      userData.set(userId, data);
-      ctx.reply(`Free protection #${data.trials}/2 activated!\nNow watching ${text}`);
-    } else {
-      ctx.replyWithMarkdownV2(`
-You used your 2 free trials
-
-*Pay to continue:*
-• Monthly → 0.1 SOL  
-• Lifetime → 0.45 SOL  
-
-*Wallet:* \`${PAYMENT_WALLET}\`  
-*Memo:* your Telegram ID (from @userinfobot)
-
-Payment detected → auto-upgrade in <10 seconds
-      `);
-    }
+  if (data.plan === "monthly" || data.plan === "lifetime") {
+    data.tokens.push(text);
+    await ctx.reply(`Protected ${text}\nUnlimited plan — full monitoring active`);
+    watchToken(text, id); // ← Start monitoring
+    return;
   }
-});
 
-// Optional status
-bot.command("plan", (ctx) => {
-  const d = userData.get(ctx.from!.id)!;
-  const status = d.plan === "free" ? `Free (${d.trials}/2 used)` :
-                 d.plan === "monthly" ? `Monthly (expires ${new Date(d.expires!).toDateString()})` :
-                 "LIFETIME";
-  ctx.reply(`Your plan: ${status}`);
+  if (data.trials < 2) {
+    data.trials++;
+    data.tokens.push(text);
+    await ctx.reply(`Free #${data.trials}/2\nNow protecting ${text}`);
+    watchToken(text, id); // ← Start monitoring
+  } else {
+    await ctx.reply(
+      `You used 2 free trials\n\n` +
+      `Pay to continue:\n` +
+      `• 0.1 SOL → Monthly\n` +
+      `• 0.45 SOL → Lifetime\n\n` +
+      `Wallet: \`${PAYMENT_WALLET}\`\n` +
+      `Memo: ${id}`,
+      { parse_mode: "Markdown" }
+    );
+  }
 });
 
 bot.launch();
-console.log("RugShield Bot is LIVE!");
+console.log("RugShield FULLY LIVE");
