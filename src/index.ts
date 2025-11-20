@@ -21,18 +21,18 @@ bot.start((ctx) => {
   }
 
   ctx.replyWithMarkdownV2(
-    `*WELCOME TO RUGCHEF* 🧑‍🍳\n\n` +
+    `*WELCOME TO RUGCHEF*\n\n` +
     `You get *2 free token protections* right now\\.\n\n` +
     `After that:\n` +
     `• Monthly → \\$20 or 0\\.1 SOL\n` +
     `• Lifetime → \\$100 or 0\\.45 SOL \\(best value\\)\n\n` +
     `*Payment wallet \\(SOL\\):*\n` +
     `\`${PAYMENT_WALLET}\`\n\n` +
-    `*VERY IMPORTANT:* \n` +
+    `*VERY IMPORTANT:*\n` +
     `When paying, write your Telegram ID in the memo\n` +
     `→ Get your ID from @userinfobot\n\n` +
     `Just send any token address \\(CA\\) below and I start watching\\!`,
-    { disable_web_page_preview: true }
+    { disable_web_page_preview: true } as const   // ← this fixes the TS error
   );
 });
 
