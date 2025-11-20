@@ -32,10 +32,7 @@ bot.start(async (ctx) => {
     `When paying, write your Telegram ID in the memo\n` +
     `→ Get your ID from @userinfobot\n\n` +
     `Just send any token address (CA) below and I start watching!`,
-    { 
-      parse_mode: "Markdown",
-      disable_web_page_preview: true 
-    }
+    { parse_mode: "Markdown" }
   );
 });
 
