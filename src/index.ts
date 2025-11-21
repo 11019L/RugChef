@@ -1,10 +1,11 @@
 import { Telegraf } from "telegraf";
 import dotenv from "dotenv";
 import { watchToken } from "./rug-monitor.js";
+import { Helius, TransactionType, WebhookType } from "helius-sdk";
 dotenv.config();
 
 const bot = new Telegraf(process.env.BOT_TOKEN!);
-export { bot }; // ← FIXED: Export for rug-monitor
+export { bot };
 export const PAYMENT_WALLET = process.env.PAYMENT_WALLET!;
 
 // User storage
@@ -14,6 +15,9 @@ export const userData = new Map<number, {
   expires?: number;
   tokens: string[];
 }>();
+
+// Helius instance (used for instant mint watching)
+const helius = new Helius(process.env.HELIUS_API_KEY!);
 
 bot.start(async (ctx) => {
   const id = ctx.from!.id;
@@ -33,30 +37,37 @@ bot.start(async (ctx) => {
   );
 });
 
-bot.on("text", async (ctx) => { // ← FIXED: Proper scope for 'text' and 'ctx'
+bot.on("text", async (ctx) => {
   const id = ctx.from!.id;
-  const text = ctx.message?.text?.trim() || ""; // ← FIXED: 'text' defined here
-  const data = userData.get(id)!;
-
+  const text = ctx.message?.text?.trim() || "";
   if (text.length < 32 || text.length > 44) return;
 
+  const data = userData.get(id)!;
+
   // Monthly expiry
-  if (data.plan === "monthly" && data.expires! < Date.now()) {
+  if (data.plan === "monthly" && data.expires && data.expires < Date.now()) {
     data.plan = "free";
   }
 
-  if (data.plan === "monthly" || data.plan === "lifetime") {
-    data.tokens.push(text);
-    await ctx.reply(`Protected ${text}\nUnlimited plan — full monitoring active`);
-    watchToken(text, id); // ← Start monitoring
-    return;
-  }
+  const isPremium = data.plan === "monthly" || data.plan === "lifetime";
 
-  if (data.trials < 2) {
+  // === INSTANT RUG PROTECTION: Watch the token mint itself IMMEDIATELY ===
+  try {
+    await helius.createWebhook({
+      webhookURL: `${process.env.RAILWAY_STATIC_URL}/rug-alert`,
+      transactionTypes: [TransactionType.ANY],
+      accountAddresses: [text], // ← This catches dev dumps in <5 seconds
+      webhookType: WebhookType.ENHANCED
+    });
+  } catch (e) { /* ignore duplicate */ }
+
+  if (isPremium) {
+    data.tokens.push(text);
+    await ctx.reply(`Protected ${text}\nUnlimited plan — FULL monitoring active`);
+  } else if (data.trials < 2) {
     data.trials++;
     data.tokens.push(text);
-    await ctx.reply(`Free #${data.trials}/2\nNow protecting ${text}`);
-    watchToken(text, id); // ← Start monitoring
+    await ctx.reply(`Free #${data.trials}/2\nNow protecting ${text}\nDev dump → instant alert`);
   } else {
     await ctx.reply(
       `You used 2 free trials\n\n` +
@@ -67,15 +78,19 @@ bot.on("text", async (ctx) => { // ← FIXED: Proper scope for 'text' and 'ctx'
       `Memo: ${id}`,
       { parse_mode: "Markdown" }
     );
+    return;
   }
+
+  // Background: auto-upgrade to full LP/dev monitoring when RugCheck indexes
+  watchToken(text, id);
 });
 
 bot.launch();
-console.log("RugShield FULLY LIVE");
+console.log("RugChef bot launched");
 
+// Single Express server (shared port)
 import rugMonitor from "./rug-monitor.js";
-
 const PORT = Number(process.env.PORT) || 3000;
 rugMonitor.listen(PORT, () => {
-  console.log(`RugShield FULLY LIVE on port ${PORT}`);
+  console.log(`RugChef FULLY LIVE on port ${PORT} — Ready to save wallets`);
 });
