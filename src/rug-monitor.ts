@@ -2,6 +2,7 @@
 import { Helius, TransactionType, WebhookType } from "helius-sdk";
 import { bot } from "./index.js";
 import express, { Request, Response } from "express";
+import { PublicKey } from "@solana/web3.js";
 
 process.env.UV_THREADPOOL_SIZE = "128";
 
@@ -57,18 +58,23 @@ app.post("/rug-alert", async (req: Request, res: Response) => {
   for (const tx of txs) {
     const sig = tx.signature;
 
+    // Get parsed tx for instruction details (Helius enhanced)
+    const parsedTx = await helius.rpc.getParsedTransaction(sig, { maxSupportedTransactionVersion: 0 });
+
     const isRug =
-      // Any token sell >50M tokens (catches slow drains)
-      tx.tokenTransfers?.some((t: any) => Number(t.tokenAmount?.amount || 0) > 50_000_000) ||
-      // LP pool loses >2 SOL
-      tx.nativeTransfers?.some((t: any) => t.amount < -2_000_000_000) ||
-      // Authority revoked / set to null
-      tx.transaction?.message?.instructions?.some((i: any) =>
-        i.programId === "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" &&
+      // Slow/big dump (lowered threshold)
+      tx.tokenTransfers?.some((t: any) => Number(t.tokenAmount?.amount || 0) > 30_000_000) ||
+      // LP drain (>1 SOL)
+      tx.nativeTransfers?.some((t: any) => t.amount < -1_000_000_000) ||
+      // Authority revoke (parse instructions)
+      parsedTx?.transaction?.message?.instructions?.some((i: any) => 
+        i.programId.toString() === "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" &&
         i.parsed?.type === "setAuthority" &&
         i.parsed?.info?.newAuthority === "11111111111111111111111111111111"
       ) ||
-      // Freeze / revoke / burn
+      // Freeze/mint change
+      parsedTx?.meta?.logMessages?.some((log: any) => /Freeze|Mint|Revoke|Authority/i.test(log)) ||
+      // Keywords
       /BURN|REVOKE|FREEZE|SETAUTHORITY/i.test(tx.type || tx.description || "");
 
     if (!isRug) continue;
@@ -78,16 +84,32 @@ app.post("/rug-alert", async (req: Request, res: Response) => {
     const users = watching.get(mint) || [];
     for (const userId of users) {
       await bot.telegram.sendMessage(userId,
-        `*RUG DETECTED — SELL IMMEDIATELY*\n\n` +
+        `*RUG DETECTED — SELL NOW*\n\n` +
         `Token: \`${mint.slice(0,8)}...${mint.slice(-4)}\`\n` +
-        `https://solscan.io/tx/${sig}\n` +
-        `https://dexscreener.com/solana/${mint}`,
-        { parse_mode: "Markdown", disable_web_page_preview: true } as any
+        `Type: Authority revoke / slow drain\n` +
+        `Tx: https://solscan.io/tx/${sig}\n` +
+        `Dex: https://dexscreener.com/solana/${mint}`,
+        { parse_mode: "Markdown" } as any
       );
     }
   }
 
   res.send("OK");
+});
+
+// Add polling for slow drains (run every 30s for new tokens)
+let pollInterval: NodeJS.Timeout;
+watching.forEach((watch, mint) => {
+  pollInterval = setInterval(async () => {
+    try {
+      const poolBalance = await helius.rpc.getTokenAccountBalance(new PublicKey(mint));
+      if (poolBalance.value.uiAmount < 10) { // LP <10 SOL = rug
+        for (const userId of watch) {
+          await bot.telegram.sendMessage(userId, `*LP DRAINED — RUG CONFIRMED*\nToken: ${mint.slice(0,8)}...\nSell now!`, { parse_mode: "Markdown" });
+        }
+      }
+    } catch { /* ignore */ }
+  }, 30 * 1000);
 });
 
 export default app;
