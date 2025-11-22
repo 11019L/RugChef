@@ -89,6 +89,19 @@ bot.on("text", async (ctx) => {
 bot.launch();
 console.log("RugChef bot launched");
 
+
+// OWNER ONLY — unlimited testing mode
+bot.command("admin", async (ctx) => {
+  const ownerId = 1319494378; // ← CHANGE THIS TO YOUR REAL TELEGRAM ID (get from @userinfobot)
+  if (ctx.from?.id !== ownerId) return;
+
+  const arg = ctx.message?.text?.split(" ")[1];
+  if (arg === "unlimited") {
+    userData.set(ownerId, { trials: 0, plan: "lifetime", tokens: [], expires: undefined });
+    await ctx.reply("Owner unlocked — LIFETIME PREMIUM ACTIVE (unlimited tokens for testing)");
+  }
+});
+
 // Single Express server (shared port)
 import rugMonitor from "./rug-monitor.js";
 const PORT = Number(process.env.PORT) || 3000;
