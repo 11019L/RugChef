@@ -58,8 +58,8 @@ app.post("/rug-alert", async (req: Request, res: Response) => {
   for (const tx of txs) {
     const sig = tx.signature;
 
-    // Get parsed tx for instruction details (Helius enhanced)
-    const parsedTx = await helius.rpc.getParsedTransaction(sig, { maxSupportedTransactionVersion: 0 });
+    // Get parsed tx for instruction details (Helius method)
+    const parsedTx = await helius.rpc.getTransaction(sig, { maxSupportedTransactionVersion: 0 });
 
     const isRug =
       // Slow/big dump (lowered threshold)
@@ -67,20 +67,19 @@ app.post("/rug-alert", async (req: Request, res: Response) => {
       // LP drain (>1 SOL)
       tx.nativeTransfers?.some((t: any) => t.amount < -1_000_000_000) ||
       // Authority revoke (parse instructions)
-      parsedTx?.transaction?.message?.instructions?.some((i: any) => 
+      parsedTx?.transaction?.message?.instructions?.some((i: any) =>
         i.programId.toString() === "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" &&
         i.parsed?.type === "setAuthority" &&
         i.parsed?.info?.newAuthority === "11111111111111111111111111111111"
       ) ||
       // Freeze/mint change
-      parsedTx?.meta?.logMessages?.some((log: any) => /Freeze|Mint|Revoke|Authority/i.test(log)) ||
+      parsedTx?.meta?.logMessages?.some((log: string) => /Freeze|Mint|Revoke|Authority/i.test(log)) ||
       // Keywords
       /BURN|REVOKE|FREEZE|SETAUTHORITY/i.test(tx.type || tx.description || "");
 
     if (!isRug) continue;
 
     const mint = tx.tokenTransfers?.[0]?.mint || "unknown";
-
     const users = watching.get(mint) || [];
     for (const userId of users) {
       await bot.telegram.sendMessage(userId,
@@ -93,17 +92,17 @@ app.post("/rug-alert", async (req: Request, res: Response) => {
       );
     }
   }
-
   res.send("OK");
 });
 
 // Add polling for slow drains (run every 30s for new tokens)
-let pollInterval: NodeJS.Timeout;
 watching.forEach((watch, mint) => {
+  let pollInterval: NodeJS.Timeout;
   pollInterval = setInterval(async () => {
     try {
-      const poolBalance = await helius.rpc.getTokenAccountBalance(new PublicKey(mint));
-      if (poolBalance.value.uiAmount < 10) { // LP <10 SOL = rug
+      const poolBalance = await helius.rpc.getTokenAccountsByOwner(new PublicKey(mint), { programId: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA") });
+      const currentBalance = poolBalance.value.reduce((sum: number, acc: any) => sum + Number(acc.amount), 0);
+      if (currentBalance < 10_000_000_000) { // LP <10 SOL = rug
         for (const userId of watch) {
           await bot.telegram.sendMessage(userId, `*LP DRAINED — RUG CONFIRMED*\nToken: ${mint.slice(0,8)}...\nSell now!`, { parse_mode: "Markdown" });
         }
