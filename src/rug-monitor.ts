@@ -7,7 +7,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 process.env.UV_THREADPOOL_SIZE = "128";
 
 const helius = new Helius(process.env.HELIUS_API_KEY!);
-const connection = new Connection(helius.rpcEndpoint); // Use Helius RPC endpoint for consistency
+const connection = new Connection(helius.endpoint); // Use Helius RPC endpoint for consistency
 const watching = new Map<string, number[]>(); // mint → userIds
 
 export async function watchToken(tokenMint: string, userId: number) {
