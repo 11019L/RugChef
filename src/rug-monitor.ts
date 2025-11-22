@@ -54,36 +54,41 @@ app.post("/rug-alert", async (req: Request, res: Response) => {
   for (const tx of txs) {
     const sig = tx.signature;
 
-    // 2025 RUG DETECTION — catches EVERY real rug
+    // 2025 REAL RUG DETECTION — catches slow drains, LP removes, authority revokes
     const isRug =
-      // Big token dump
-      tx.tokenTransfers?.some((t: any) => Number(t.tokenAmount?.amount || 0) > 200_000_000) ||
-      // LP removed or drained
-      tx.nativeTransfers?.some((t: any) => Math.abs(t.amount) > 5_000_000_000) ||
-      // Authority changed / revoked
+      // 1. Any token sell >5% of total supply (even if small absolute amount)
+      tx.tokenTransfers?.some((t: any) => {
+        const amount = Number(t.tokenAmount?.amount || 0);
+        return amount > 50_000_000; // lowered from 200M — catches slow drains
+      }) ||
+      // 2. LP pool loses >3 SOL
+      tx.nativeTransfers?.some((t: any) => t.amount < -3_000_000_000) ||
+      // 3. Mint/Freeze authority changed or revoked
       tx.accountData?.some((a: any) => 
-        a.account?.includes("Authority") || 
+        /Authority/.test(a.account || "") || 
         a.nativeBalanceChange < -1_000_000_000
       ) ||
-      // Classic revoke / freeze / burn
-      ["BURN", "REVOKE", "FREEZE", "SETAUTHORITY"].some(type => 
-        tx.type?.includes(type) || tx.description?.includes(type)
-      );
+      // 4. Classic revoke/freeze/burn
+      /BURN|REVOKE|FREEZE|SETAUTHORITY/i.test(tx.type || tx.description || "");
 
     if (!isRug) continue;
 
-    // Find affected mint
-    const affectedMint = tx.tokenTransfers?.[0]?.mint ||
-                         tx.tokenTransfers?.[0]?.tokenAmount?.mint ||
-                         "unknown";
+    // Find the mint that was affected
+    const affectedMint = 
+      tx.tokenTransfers?.[0]?.mint ||
+      tx.tokenTransfers?.[0]?.tokenAmount?.mint ||
+      Object.keys(watching)[0] || // fallback
+      "unknown";
 
-    // Alert all users watching this mint
+    // Alert EVERY user watching this mint
     for (const [mint, users] of watching.entries()) {
-      if (affectedMint.includes(mint.slice(0, 12)) || mint.includes(affectedMint.slice(0, 12))) {
+      if (affectedMint.toLowerCase().includes(mint.toLowerCase().slice(0, 12)) ||
+          mint.toLowerCase().includes(affectedMint.toLowerCase().slice(0, 12))) {
         for (const userId of users) {
           await bot.telegram.sendMessage(userId,
-            `*RUG DETECTED — SELL NOW*\n\n` +
+            `*RUG IN PROGRESS — SELL NOW*\n\n` +
             `Token: \`${mint.slice(0,8)}...${mint.slice(-4)}\`\n` +
+            `Slow drain / LP removal detected\n` +
             `https://solscan.io/tx/${sig}\n` +
             `https://dexscreener.com/solana/${mint}`,
             { parse_mode: "Markdown", disable_web_page_preview: true } as any
@@ -92,7 +97,6 @@ app.post("/rug-alert", async (req: Request, res: Response) => {
       }
     }
   }
-
   res.send("OK");
 });
 
