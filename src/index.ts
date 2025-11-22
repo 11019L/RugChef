@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 import { watchToken } from "./rug-monitor.js";
 import { Helius, TransactionType, WebhookType } from "helius-sdk";
 dotenv.config();
+import { PublicKey } from "@solana/web3.js";
 
 const bot = new Telegraf(process.env.BOT_TOKEN!);
 export { bot };
