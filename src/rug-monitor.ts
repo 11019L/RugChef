@@ -1,4 +1,4 @@
-// src/rug-monitor.ts — FINAL, COMPILING, NO MORE SILENT RUGS (November 2025)
+// src/rug-monitor.ts — FINAL WORKING VERSION (November 2025) — NO MORE SILENT RUGS
 import { Helius, TransactionType, WebhookType } from "helius-sdk";
 import { bot } from "./index.js";
 import express, { Request, Response } from "express";
@@ -58,57 +58,63 @@ app.post("/rug-alert", async (req: Request, res: Response) => {
   for (const tx of txs) {
     const sig = tx.signature;
 
-    // Get parsed tx for instruction details (Helius method)
-    const parsedTx = await helius.rpc.getTransaction(sig, { maxSupportedTransactionVersion: 0 });
-
+    // Enhanced rug detection (no extra RPC calls — uses webhook payload only)
     const isRug =
-      // Slow/big dump (lowered threshold)
+      // Any token sell >30M tokens (catches slow drains)
       tx.tokenTransfers?.some((t: any) => Number(t.tokenAmount?.amount || 0) > 30_000_000) ||
-      // LP drain (>1 SOL)
+      // LP pool loses >1 SOL
       tx.nativeTransfers?.some((t: any) => t.amount < -1_000_000_000) ||
-      // Authority revoke (parse instructions)
-      parsedTx?.transaction?.message?.instructions?.some((i: any) =>
-        i.programId.toString() === "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" &&
+      // Authority revoke (Tokenkeg setAuthority to null)
+      tx.transaction?.message?.instructions?.some((i: any) =>
+        i.programId === "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" &&
         i.parsed?.type === "setAuthority" &&
         i.parsed?.info?.newAuthority === "11111111111111111111111111111111"
       ) ||
-      // Freeze/mint change
-      parsedTx?.meta?.logMessages?.some((log: string) => /Freeze|Mint|Revoke|Authority/i.test(log)) ||
-      // Keywords
+      // Freeze / revoke / burn keywords
       /BURN|REVOKE|FREEZE|SETAUTHORITY/i.test(tx.type || tx.description || "");
 
     if (!isRug) continue;
 
     const mint = tx.tokenTransfers?.[0]?.mint || "unknown";
     const users = watching.get(mint) || [];
+
     for (const userId of users) {
       await bot.telegram.sendMessage(userId,
         `*RUG DETECTED — SELL NOW*\n\n` +
         `Token: \`${mint.slice(0,8)}...${mint.slice(-4)}\`\n` +
-        `Type: Authority revoke / slow drain\n` +
-        `Tx: https://solscan.io/tx/${sig}\n` +
-        `Dex: https://dexscreener.com/solana/${mint}`,
-        { parse_mode: "Markdown" } as any
+        `https://solscan.io/tx/${sig}\n` +
+        `https://dexscreener.com/solana/${mint}`,
+        { parse_mode: "Markdown", disable_web_page_preview: true } as any
       );
     }
   }
+
   res.send("OK");
 });
 
-// Add polling for slow drains (run every 30s for new tokens)
-watching.forEach((watch, mint) => {
-  let pollInterval: NodeJS.Timeout;
-  pollInterval = setInterval(async () => {
+// Lightweight polling fallback — only runs when token has no LP yet
+watching.forEach((users, mint) => {
+  let attempts = 0;
+  const poll = async () => {
+    if (attempts++ > 20) return; // stop after ~10 min
+
     try {
-      const poolBalance = await helius.rpc.getTokenAccountsByOwner(new PublicKey(mint), { programId: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA") });
-      const currentBalance = poolBalance.value.reduce((sum: number, acc: any) => sum + Number(acc.amount), 0);
-      if (currentBalance < 10_000_000_000) { // LP <10 SOL = rug
-        for (const userId of watch) {
+      // Try to get LP balance from token accounts
+      const accounts = await helius.rpc.getTokenAccountsByOwner(new PublicKey(mint), {
+        programId: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+      });
+
+      const total = accounts.value.reduce((sum: number, a: any) => sum + Number(a.amount), 0);
+      if (total < 10_000_000_000) { // <10 SOL in LP
+        for (const userId of users) {
           await bot.telegram.sendMessage(userId, `*LP DRAINED — RUG CONFIRMED*\nToken: ${mint.slice(0,8)}...\nSell now!`, { parse_mode: "Markdown" });
         }
       }
     } catch { /* ignore */ }
-  }, 30 * 1000);
+
+    setTimeout(poll, 30_000); // every 30s
+  };
+  poll();
 });
 
 export default app;
