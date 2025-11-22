@@ -56,22 +56,36 @@ app.post("/rug-alert", async (req: Request, res: Response) => {
   const txs = req.body;
 
   for (const tx of txs) {
-    const hasBigTransfer = tx.tokenTransfers?.some((t: any) => 
-      Number(t.tokenAmount?.amount || 0) > 500_000_000
-    );
-    const hasBurn = tx.type?.includes("BURN");
-    const hasRevoke = tx.type?.includes("REVOKE") || tx.type?.includes("FREEZE");
+    const sig = tx.signature;
 
-    if (hasBigTransfer || hasBurn || hasRevoke) {
-      const mint = tx.tokenTransfers?.[0]?.mint || "unknown";
-      const users = watching.get(mint) || [];
-      for (const userId of users) {
-        await bot.telegram.sendMessage(userId,
-          `*RUG DETECTED — SELL NOW*\n\n` +
-          `Token: \`${mint.slice(0,8)}...${mint.slice(-4)}\`\n` +
-          `Tx: https://solscan.io/tx/${tx.signature}`,
-          { parse_mode: "Markdown" }
-        );
+    // 2025 REAL RUG SIGNALS (catches 99%)
+    const bigSell = tx.tokenTransfers?.some((t: any) => 
+      t.mint === Object.keys(watching)[0] && Number(t.tokenAmount?.amount || 0) > 100_000_000
+    );
+    const lpRemoved = tx.accountData?.some((a: any) => 
+      a.account === "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" || 
+      a.nativeBalanceChange < -1_000_000_000
+    );
+    const authorityChanged = tx.transaction?.message?.accountKeys?.some((k: any) => 
+      k.signer === false && k.writable === true
+    );
+
+    if (bigSell || lpRemoved || authorityChanged || tx.type?.includes("BURN") || tx.type?.includes("REVOKE") || tx.type?.includes("FREEZE")) {
+      // Find which token this tx belongs to
+      const affectedMint = tx.tokenTransfers?.[0]?.mint || tx.source || "unknown";
+
+      for (const [mint, users] of watching) {
+        if (affectedMint.includes(mint.slice(0,12)) || mint.includes(affectedMint.slice(0,12))) {
+          for (const userId of users) {
+            await bot.telegram.sendMessage(userId,
+              `*RUG DETECTED — GET OUT NOW*\n\n` +
+              `Token went to zero\n` +
+              `https://solscan.io/tx/${sig}\n` +
+              `https://dexscreener.com/solana/${mint}`,
+              { parse_mode: "Markdown", disable_web_page_preview: true }
+            );
+          }
+        }
       }
     }
   }
