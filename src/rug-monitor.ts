@@ -7,7 +7,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 process.env.UV_THREADPOOL_SIZE = "128";
 
 const helius = new Helius(process.env.HELIUS_API_KEY!);
-const connection = new Connection(`https://api.mainnet-beta.solana.com`); // fallback if needed
+const connection = new Connection(helius.rpcEndpoint); // Use Helius RPC endpoint for consistency
 const watching = new Map<string, number[]>(); // mint → userIds
 
 export async function watchToken(tokenMint: string, userId: number) {
@@ -148,9 +148,9 @@ setInterval(async () => {
     if (users.length === 0) continue;
 
     try {
-      // Get largest token account (usually LP pool)
-      const accounts = await helius.rpc.getTokenLargestAccounts(new PublicKey(mint));
-      const largest = accounts.value[0];
+      // Get largest token accounts for the mint (standard Solana RPC method)
+      const response = await connection.getTokenLargestAccounts(new PublicKey(mint));
+      const largest = response.value[0];
 
       if (!largest || Number(largest.uiAmount || 0) < 100) {
         // Less than ~100 tokens left in biggest account → likely rugged
