@@ -82,7 +82,7 @@ app.post("/rug-alert", async (req: Request, res: Response) => {
               `Token went to zero\n` +
               `https://solscan.io/tx/${sig}\n` +
               `https://dexscreener.com/solana/${mint}`,
-              { parse_mode: "Markdown", disable_web_page_preview: true }
+              { parse_mode: "Markdown", disable_web_page_preview: true } as any
             );
           }
         }
