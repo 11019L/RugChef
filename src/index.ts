@@ -1,4 +1,4 @@
-// src/index.ts — FINAL VERSION THAT ACTUALLY WORKS (LOGS + FULL PROTECTION)
+// src/index.ts — FINAL VERSION THAT ACTUALLY WORKS (NOV 2025)
 import { Telegraf } from "telegraf";
 import dotenv from "dotenv";
 import { watchToken } from "./rug-monitor.js";
@@ -7,23 +7,16 @@ import { Helius, TransactionType, WebhookType } from "helius-sdk";
 
 dotenv.config();
 
-// FORCE LOGS TO APPEAR ON RAILWAY (this is the #1 fix)
-process.env.FORCE_COLOR = "1";
-const originalLog = console.log;
+// FORCE LOGS + TIMESTAMPS
 console.log = (...args: any[]) => {
-  originalLog(new Date().toISOString(), ...args);
-  process.stdout.write("\n");
+  process.stdout.write(`${new Date().toISOString()} ${args.join(" ")}\n`);
 };
 
-// WEBHOOK URL — auto-fix for Railway/Render
+// WEBHOOK URL
 export const WEBHOOK_URL = (() => {
-  const base =
-    process.env.RAILWAY_STATIC_URL ||
-    process.env.RENDER_EXTERNAL_URL ||
-    `https://${process.env.RAILWAY_APP_NAME}.up.railway.app`;
-
+  const base = process.env.RAILWAY_STATIC_URL || `https://${process.env.RAILWAY_APP_NAME}.up.railway.app`;
   if (!base || base.includes("undefined")) {
-    console.error("FATAL: Add RAILWAY_STATIC_URL in Railway variables!");
+    console.error("FATAL: Set RAILWAY_STATIC_URL in Railway variables!");
     process.exit(1);
   }
   const url = `${base.replace(/\/$/, "")}/rug-alert`;
@@ -39,12 +32,15 @@ export const userData = new Map<number, any>();
 
 const helius = new Helius(process.env.HELIUS_API_KEY!);
 
-// START SERVER FIRST
+// START SERVER
 rugMonitor.listen(Number(process.env.PORT) || 3000, () => {
-  console.log("SERVER LIVE — READY FOR WEBHOOKS");
+  console.log("SERVER LIVE");
 });
 
-// BOT LOGIC
+// ESCAPE FUNCTION FOR MARKDOWNV2
+const escape = (text: string) => text
+  .replace(/[_*[\]()`~>#+=|{}.!-]/g, "\\$&");
+
 bot.start((ctx) => ctx.reply("*RUGCHEF ACTIVE*\nSend any token CA", { parse_mode: "Markdown" }));
 
 bot.on("text", async (ctx) => {
@@ -55,10 +51,9 @@ bot.on("text", async (ctx) => {
 
   let user = userData.get(userId) || { trials: 0, plan: "free", tokens: [] };
   if (user.plan === "monthly" && user.expires && user.expires < Date.now()) user.plan = "free";
-
   const isPremium = user.plan === "lifetime" || user.plan === "monthly";
 
-  // Quick backup webhook
+  // QUICK MINT WEBHOOK
   try {
     await helius.createWebhook({
       webhookURL: WEBHOOK_URL,
@@ -66,32 +61,43 @@ bot.on("text", async (ctx) => {
       accountAddresses: [text],
       webhookType: WebhookType.ENHANCED,
     });
-  } catch {}
+    console.log("Quick mint webhook created");
+  } catch (e: any) {
+    console.error("MINT WEBHOOK FAILED:");
+    if (e.response?.data) {
+      console.error("Helius says:", JSON.stringify(e.response.data, null, 2));
+    } else {
+      console.error("Error:", e.message || e);
+    }
+  }
 
   if (isPremium || user.trials < 2) {
     if (!isPremium) user.trials++;
     if (!user.tokens.includes(text)) user.tokens.push(text);
     userData.set(userId, user);
 
-    const short = `${text.slice(0,8)}...${text.slice(-4)}`;
+    const short = escape(text.slice(0,8) + "..." + text.slice(-4));
 
     await ctx.reply(
       isPremium
         ? `UNLIMITED → \`${short}\``
-        : `FREE TRIAL \\#${user.trials}/2 → \`${short}\``,
+        : `FREE TRIAL \\#${user.trials}\\/2 → \`${short}\``,
       { parse_mode: "MarkdownV2" }
     );
 
-    console.log(`USER ${userId} ADDED ${text} — TRIAL ${user.trials}/2`);
-    console.log("CALLING watchToken() NOW...");
-
-    // THIS IS THE LINE THAT MAKES EVERYTHING WORK
-    await watchToken(text, userId);   // ← awaited = logs + full protection
+    console.log(`PROTECTING ${text} — TRIAL ${user.trials}/2`);
+    await watchToken(text, userId); // ← full protection + logs
 
   } else {
-    await ctx.reply(`*FREE TRIALS USED*\n\nSend 0.45 SOL → lifetime\nWallet: \`${PAYMENT_WALLET}\`\nMemo: \`${userId}\``, { parse_mode: "Markdown" });
+    await ctx.reply(
+      `*FREE TRIALS USED*\n\n` +
+      `Send 0.45 SOL → lifetime\n` +
+      `Wallet: \`${PAYMENT_WALLET}\`\n` +
+      `Memo: \`${userId}\``,
+      { parse_mode: "Markdown" }
+    );
   }
 });
 
 bot.launch();
-console.log("BOT LIVE — SEND A CA TO TEST");
+console.log("RUGCHEF 100% LIVE — SEND A CA");
