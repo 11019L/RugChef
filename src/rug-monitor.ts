@@ -34,17 +34,20 @@ export async function watchToken(tokenMint: string, userId: number) {
 
   // 1. Watch mint itself
   try {
-    const webhook = await helius.createWebhook({
-      webhookURL: webhookUrl,
-      transactionTypes: [TransactionType.ANY],
-      accountAddresses: [tokenMint],
-      webhookType: WebhookType.ENHANCED,
-    });
-    console.log(`Webhook created for mint: ${tokenMint} → ID: ${webhook.id}`);
-    entry.addresses.push(tokenMint);
-  } catch (e: any) {
-    console.error("Failed to create webhook for mint:", e.message);
+  const webhook = await helius.createWebhook({
+    webhookURL: webhookUrl,
+    transactionTypes: [TransactionType.ANY],
+    accountAddresses: [tokenMint],
+    webhookType: WebhookType.ENHANCED,
+  });
+  console.log(`Webhook created for mint: ${tokenMint} → SUCCESS`);
+  if ("id" in webhook && webhook.id) {
+    console.log(`   Webhook ID: ${webhook.id}`);
   }
+  entry.addresses.push(tokenMint);
+} catch (e: any) {
+  console.error("Failed to create mint webhook:", e.message || e);
+}
 
   // 2. DexScreener → LP + creator
   try {
@@ -58,21 +61,23 @@ export async function watchToken(tokenMint: string, userId: number) {
       if (p.creatorAddress) extra.add(p.creatorAddress);
     });
 
-    if (extra.size > 0) {
-      console.log(`→ Found ${extra.size} extra addresses (LP/creator):`, Array.from(extra));
-      try {
-        const webhook = await helius.createWebhook({
-          webhookURL: webhookUrl,
-          transactionTypes: [TransactionType.ANY],
-          accountAddresses: [tokenMint, ...Array.from(extra)],
-          webhookType: WebhookType.ENHANCED,
-        });
-        console.log(`FULL PROTECTION webhook created → ID: ${webhook.id}`);
-        entry.addresses.push(...Array.from(extra));
-      } catch (e: any) {
-        console.error("Failed to create full protection webhook:", e.message);
-      }
-    } else {
+   if (extra.size > 0) {
+  try {
+    const webhook = await helius.createWebhook({
+      webhookURL: webhookUrl,
+      transactionTypes: [TransactionType.ANY],
+      accountAddresses: [tokenMint, ...Array.from(extra)],
+      webhookType: WebhookType.ENHANCED,
+    });
+    console.log(`FULL PROTECTION webhook created → SUCCESS`);
+    if ("id" in webhook && webhook.id) {
+      console.log(`   Webhook ID: ${webhook.id}`);
+    }
+    entry.addresses.push(...Array.from(extra));
+  } catch (e: any) {
+    console.error("Failed to create full protection webhook:", e.message || e);
+  }
+} else {
       console.log("→ No LP/creator found yet on DexScreener");
     }
   } catch (e) {
