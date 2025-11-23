@@ -29,18 +29,26 @@ const escapeMD = (text: string) => text.replace(/[_*\[\]()~`>#+=|{}.!-]/g, "\\$&
 
 // THIS IS THE ONLY ERROR LOGGER THAT WORKS IN 2025
 const logHeliusError = (action: string, e: any) => {
-  let realError = "unknown error";
+  let realError = "unknown";
 
+  // CASE 1: Helius SDK wraps error in string + cause
   if (e.message?.includes("createWebhook") && e.cause) {
-    realError = e.cause.response?.data || e.cause.message || e.message;
-  } else if (e.response?.data) {
+    const cause = e.cause;
+    realError = cause.response?.data || cause.message || cause;
+  }
+  // CASE 2: Normal Axios error
+  else if (e.response?.data) {
     realError = e.response.data;
-  } else if (e.message) {
-    realError = e.message;
+  }
+  // CASE 3: Fallback
+  else {
+    realError = e.message || e;
   }
 
   console.error(`\nHELIUS REJECTED ${action} →`);
+  console.error("REAL ERROR ↓↓↓");
   console.error(JSON.stringify(realError, null, 2));
+  console.error("↑↑↑ END ERROR\n");
 };
 
 export async function watchToken(tokenMint: string, userId: number) {
