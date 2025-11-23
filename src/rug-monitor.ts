@@ -48,6 +48,7 @@ export async function watchToken(tokenMint: string, userId: number) {
   console.log(`→ Now watching for ${entry.users.length} users`);
 
   // 1. Mint webhook
+  // 1. Mint webhook
   try {
     await helius.createWebhook({
       webhookURL: WEBHOOK_URL,
@@ -55,26 +56,26 @@ export async function watchToken(tokenMint: string, userId: number) {
       accountAddresses: [tokenMint],
       webhookType: WebhookType.ENHANCED,
     });
-    console.log(`Mint webhook created → SUCCESS`);
+    console.log(`Mint webhook created SUCCESS`);
     entry.addresses.push(tokenMint);
   } catch (e: any) {
     console.error("FAILED TO CREATE MINT WEBHOOK");
-    if (e.response?.data) {
-      console.error("Helius error:", JSON.stringify(e.response.data, null, 2));
+    if (e.isAxiosError || e.response) {
+      console.error("Helius API Response:", JSON.stringify(e.response?.data || e.response, null, 2));
     } else {
       console.error("Error:", e.message || e);
     }
   }
 
-  // Prevent rate limiting
-  await new Promise(r => setTimeout(r, 1200));
+  // Rate limit protection
+  await new Promise(r => setTimeout(r, 1500));
 
-  // 2. Full protection (LP + creator)
+  // 2. Full protection
   try {
     const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenMint}`, {
       signal: AbortSignal.timeout(8000),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error("DexScreener down");
     const data: any = await res.json();
 
     const extra = new Set<string>();
@@ -84,7 +85,7 @@ export async function watchToken(tokenMint: string, userId: number) {
     });
 
     if (extra.size > 0) {
-      console.log(`→ Found ${extra.size} extra addresses (LP/creator)`);
+      console.log(`Found ${extra.size} extra addresses → creating full webhook`);
       try {
         await helius.createWebhook({
           webhookURL: WEBHOOK_URL,
@@ -92,16 +93,20 @@ export async function watchToken(tokenMint: string, userId: number) {
           accountAddresses: [tokenMint, ...Array.from(extra)],
           webhookType: WebhookType.ENHANCED,
         });
-        console.log(`FULL PROTECTION webhook created → SUCCESS`);
+        console.log(`FULL PROTECTION webhook created SUCCESS`);
         entry.addresses.push(...Array.from(extra));
       } catch (e: any) {
         console.error("FAILED TO CREATE FULL PROTECTION WEBHOOK");
-        if (e.response?.data) {
-          console.error("Helius error:", JSON.stringify(e.response.data, null, 2));
+        if (e.isAxiosError || e.response) {
+          console.error("Helius API Response:", JSON.stringify(e.response?.data || e.response, null, 2));
         } else {
           console.error("Error:", e.message || e);
         }
       }
+    }
+  } catch (e) {
+    console.log("DexScreener not ready yet (normal)");
+  }
     } else {
       console.log("→ No LP/creator found yet on DexScreener");
     }
