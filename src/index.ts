@@ -87,11 +87,11 @@ bot.on("text", async (ctx) => {
   try {
     await helius.createWebhook({
       webhookURL: WEBHOOK_URL,
-      transactionTypes: [TransactionType.ANY],
       accountAddresses: [text],
-      webhookType: WebhookType.ENHANCED,
     });
-  } catch {}
+    console.log(`Quick mint webhook created for ${text.slice(0,8)}...`);
+  } catch (e: any) {
+    }
 
   if (isPremium || user.trials < 2) {
     if (!isPremium) user.trials++;
