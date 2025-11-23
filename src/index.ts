@@ -1,5 +1,4 @@
-// src/index.ts — FINAL VERSION THAT ACTUALLY WORKS (NOV 2025)
-import { Telegraf } from "telegraf";
+  import { Telegraf } from "telegraf";
 import dotenv from "dotenv";
 import { watchToken } from "./rug-monitor.js";
 import rugMonitor from "./rug-monitor.js";
@@ -32,16 +31,18 @@ export const userData = new Map<number, any>();
 
 const helius = new Helius(process.env.HELIUS_API_KEY!);
 
-// START SERVER
+// START SERVER FIRST
 rugMonitor.listen(Number(process.env.PORT) || 3000, () => {
-  console.log("SERVER LIVE");
+  console.log("SERVER LIVE — READY FOR HELIUS");
 });
 
-// ESCAPE FUNCTION FOR MARKDOWNV2
-const escape = (text: string) => text
-  .replace(/[_*[\]()`~>#+=|{}.!-]/g, "\\$&");
+// ESCAPE ALL SPECIAL MARKDOWNV2 CHARACTERS
+const escapeMD = (text: string) =>
+  text.replace(/[_*[\]()~`>#+=|{}.!-]/g, "\\$&");
 
-bot.start((ctx) => ctx.reply("*RUGCHEF ACTIVE*\nSend any token CA", { parse_mode: "Markdown" }));
+bot.start((ctx) =>
+  ctx.reply("*RUGCHEF ACTIVE*\nSend any token CA", { parse_mode: "Markdown" })
+);
 
 bot.on("text", async (ctx) => {
   const userId = ctx.from!.id;
@@ -53,7 +54,7 @@ bot.on("text", async (ctx) => {
   if (user.plan === "monthly" && user.expires && user.expires < Date.now()) user.plan = "free";
   const isPremium = user.plan === "lifetime" || user.plan === "monthly";
 
-  // QUICK MINT WEBHOOK
+  // Quick mint webhook (backup)
   try {
     await helius.createWebhook({
       webhookURL: WEBHOOK_URL,
@@ -61,14 +62,9 @@ bot.on("text", async (ctx) => {
       accountAddresses: [text],
       webhookType: WebhookType.ENHANCED,
     });
-    console.log("Quick mint webhook created");
+    console.log("Quick mint webhook OK");
   } catch (e: any) {
-    console.error("MINT WEBHOOK FAILED:");
-    if (e.response?.data) {
-      console.error("Helius says:", JSON.stringify(e.response.data, null, 2));
-    } else {
-      console.error("Error:", e.message || e);
-    }
+    console.error("Quick webhook failed →", e.response?.data || e.message || e);
   }
 
   if (isPremium || user.trials < 2) {
@@ -76,7 +72,7 @@ bot.on("text", async (ctx) => {
     if (!user.tokens.includes(text)) user.tokens.push(text);
     userData.set(userId, user);
 
-    const short = escape(text.slice(0,8) + "..." + text.slice(-4));
+    const short = escapeMD(text.slice(0, 8) + "..." + text.slice(-4));
 
     await ctx.reply(
       isPremium
@@ -85,15 +81,11 @@ bot.on("text", async (ctx) => {
       { parse_mode: "MarkdownV2" }
     );
 
-    console.log(`PROTECTING ${text} — TRIAL ${user.trials}/2`);
-    await watchToken(text, userId); // ← full protection + logs
-
+    console.log(`PROTECTING ${text} — USER ${userId} — TRIAL ${user.trials}/2`);
+    await watchToken(text, userId); // ← FULL PROTECTION
   } else {
     await ctx.reply(
-      `*FREE TRIALS USED*\n\n` +
-      `Send 0.45 SOL → lifetime\n` +
-      `Wallet: \`${PAYMENT_WALLET}\`\n` +
-      `Memo: \`${userId}\``,
+      `*FREE TRIALS USED*\n\nSend 0.45 SOL → lifetime\nWallet: \`${PAYMENT_WALLET}\`\nMemo: \`${userId}\``,
       { parse_mode: "Markdown" }
     );
   }
