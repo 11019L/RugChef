@@ -1,13 +1,21 @@
+// src/payment-webhook.ts — FINAL, COMPILES CLEAN IN STRICT MODE
 import express, { Request, Response } from "express";
 import { Helius } from "helius-sdk";
 import { bot } from "./index.js";
 import { userData } from "./index.js";
 
-declare global {
-  var processedPayments: Set<string> | undefined;
+// ────── Proper global type declaration (fixes TS18048) ──────
+interface ProcessedPaymentsGlobal extends NodeJS.Global {
+  processedPayments: Set<string>;
 }
-global.processedPayments ??= new Set<string>();
+declare var global: ProcessedPaymentsGlobal;
 
+// Initialize once
+if (!global.processedPayments) {
+  global.processedPayments = new Set<string>();
+}
+
+// ────── App setup ──────
 const app = express();
 app.use(express.json({ limit: "20mb" }));
 
@@ -16,10 +24,10 @@ const PAYMENT_WALLET = process.env.PAYMENT_WALLET!;
 
 app.post("/helius", async (req: Request, res: Response) => {
   const txs: any[] = req.body || [];
-  console.log(`\n[PAYMENT WEBHOOK] ${txs.length} tx(s)`);
+  console.log(`\n[PAYMENT WEBHOOK] ${txs.length} transaction(s) received`);
 
   for (const tx of txs) {
-    if (!tx.nativeTransfers || !tx.signature) continue;
+    if (!tx.signature || !tx.nativeTransfers) continue;
 
     const payment = tx.nativeTransfers.find((t: any) =>
       t.toUserAccount === PAYMENT_WALLET && t.amount >= 90_000_000
@@ -27,48 +35,63 @@ app.post("/helius", async (req: Request, res: Response) => {
     if (!payment) continue;
 
     const amountSOL = payment.amount / 1_000_000_000;
-    const signature = tx.signature;
-    const description = (tx.description || "").toLowerCase();
+    const sig = tx.signature;
+    const desc = (tx.description || "").toLowerCase();
 
-    if (global.processedPayments.has(signature)) {
-      console.log(`→ Duplicate payment ignored: ${signature}`);
+    // ────── Prevent duplicate processing ──────
+    if (global.processedPayments.has(sig)) {
+      console.log(`→ Duplicate ignored: ${sig}`);
       continue;
     }
-    global.processedPayments.add(signature);
+    global.processedPayments.add(sig);
 
-    const memoMatch = description.match(/\d{7,12}/);
-    if (!memoMatch) {
-      console.log(`→ No user ID in memo`);
+    // ────── Extract user ID from memo ──────
+    const match = desc.match(/\d{7,12}/);
+    if (!match) {
+      console.log(`→ No valid Telegram ID in memo`);
       continue;
     }
-
-    const userId = Number(memoMatch[0]);
-    console.log(`→ Payment ${amountSOL.toFixed(3)} SOL from user ${userId}`);
+    const userId = Number(match[0]);
+    console.log(`→ Payment detected: ${amountSOL.toFixed(4)} SOL → User ${userId}`);
 
     try {
       if (amountSOL >= 0.44) {
+        // Lifetime
         userData.set(userId, { trials: 0, plan: "lifetime", tokens: [], expires: undefined });
-        await bot.telegram.sendMessage(userId,
-          `*LIFETIME UNLOCKED*\nPaid ${amountSOL.toFixed(3)} SOL\nhttps://solscan.io/tx/${signature}`,
+        await bot.telegram.sendMessage(
+          userId,
+          `*LIFETIME ACCESS UNLOCKED*\n\n` +
+          `Amount: ${amountSOL.toFixed(4)} SOL\n` +
+          `Thank you for the support!\n` +
+          `https://solscan.io/tx/${sig}`,
           { parse_mode: "Markdown" }
         );
       } else {
-        userData.set(userId, { trials: 0, plan: "monthly", tokens: [], expires: Date.now() + 30*24*60*60*1000 });
-        await bot.telegram.sendMessage(userId,
-          `*MONTHLY ACTIVATED*\nPaid ${amountSOL.toFixed(3)} SOL (30 days)\nhttps://solscan.io/tx/${signature}`,
+        // Monthly
+        userData.set(userId, { trials: 0, plan: "monthly", tokens: [], expires: Date.now() + 30 * 24 * 60 * 60 * 1000 });
+        await bot.telegram.sendMessage(
+          userId,
+          `*MONTHLY ACCESS ACTIVATED*\n\n` +
+          `Amount: ${amountSOL.toFixed(4)} SOL\n` +
+          `Valid for 30 days\n` +
+          `https://solscan.io/tx/${sig}`,
           { parse_mode: "Markdown" }
         );
       }
-      console.log(`   → Upgraded user ${userId}`);
-    } catch (e) {
-      console.error(`Failed to message ${userId}`);
+      console.log(`→ Successfully upgraded user ${userId}`);
+    } catch (err: any) {
+      console.error(`→ Failed to message user ${userId}:`, err.message);
     }
   }
 
   res.send("OK");
 });
 
+// ────── Start server ──────
 const PORT = Number(process.env.PORT) || 3001;
 app.listen(PORT, () => {
   console.log(`Payment webhook LIVE on port ${PORT}`);
+  console.log(`Endpoint: ${process.env.RAILWAY_STATIC_URL}/helius`);
 });
+
+export default app;
