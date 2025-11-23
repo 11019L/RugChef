@@ -53,16 +53,16 @@ bot.command("admin", async (ctx) => {
 });
 
 // Main message handler
+// === REPLACE YOUR ENTIRE bot.on("text", ...) BLOCK WITH THIS ===
+
 bot.on("text", async (ctx) => {
   const userId = ctx.from!.id;
   const text = ctx.message?.text?.trim();
 
-  // Ignore short/long messages
   if (!text || text.length < 32 || text.length > 44) return;
 
   let user = userData.get(userId) || { trials: 0, plan: "free", tokens: [] };
 
-  // Expire monthly plans
   if (user.plan === "monthly" && user.expires && user.expires < Date.now()) {
     user.plan = "free";
     user.expires = undefined;
@@ -70,7 +70,7 @@ bot.on("text", async (ctx) => {
 
   const isPremium = user.plan === "lifetime" || user.plan === "monthly";
 
-  // === QUICK MINT WEBHOOK (backup, fires instantly) ===
+  // === QUICK MINT WEBHOOK (backup) ===
   try {
     await helius.createWebhook({
       webhookURL: `${process.env.RAILWAY_STATIC_URL}/rug-alert`,
@@ -78,40 +78,41 @@ bot.on("text", async (ctx) => {
       accountAddresses: [text],
       webhookType: WebhookType.ENHANCED,
     });
-    console.log(`[QUICK WATCH] Mint webhook created for ${text.slice(0,8)}... (user ${userId})`);
+    console.log(`[QUICK] Webhook created for ${text.slice(0,8)}...`);
   } catch (e: any) {
-    if (!e.message.includes("already exists")) {
-      console.error("Quick webhook failed:", e.message);
+    // THIS IS THE FIX — proper error logging
+    console.error(`[QUICK WEBHOOK FAILED] ${e.message || e}`);
+    if (e.response?.description) {
+      console.error("Helius error:", e.response.description);
     }
   }
 
-  // === CHECK PLAN & TRIALS ===
+  // === CHECK TRIALS / PREMIUM ===
   if (isPremium || user.trials < 2) {
     if (!isPremium) user.trials++;
 
-    if (!user.tokens.includes(text)) {
-      user.tokens.push(text);
-    }
+    if (!user.tokens.includes(text)) user.tokens.push(text);
     userData.set(userId, user);
 
-    await ctx.reply(
-      isPremium
-        ? `UNLIMITED PROTECTION ACTIVE\nToken: \`${text.slice(0,8)}...${text.slice(-4)}\``
-        : `FREE TRIAL #${user.trials}/2\nNow protecting \`${text.slice(0,8)}...${text.slice(-4)}\``,
-      { parse_mode: "MarkdownV2" }
-    );
+    const short = `${text.slice(0,8)}...${text.slice(-4)}`;
 
-    // === FULL PROTECTION (LP + creator + freeze detection) ===
-    console.log(`[FULL WATCH] Starting full protection for ${text} (user ${userId})`);
-    await watchToken(text, userId); // ← This is now awaited!
+    // THIS IS THE FIX — escape # and use safe MarkdownV2
+    const message = isPremium
+      ? `UNLIMITED PROTECTION ACTIVE\nToken: \`${short}\``
+      : `FREE TRIAL \\#${user.trials}/2\nNow protecting \`${short}\``;
+
+    await ctx.reply(message, { parse_mode: "MarkdownV2" });
+
+    console.log(`[FULL] Starting protection for ${short} (user ${userId})`);
+    await watchToken(text, userId); // awaited = no more silent rugs
   } else {
     await ctx.reply(
       `*FREE TRIALS EXHAUSTED*\n\n` +
-        `Upgrade to keep your bags safe:\n\n` +
-        `• Monthly → 0.1 SOL\n` +
-        `• Lifetime → 0.45 SOL\n\n` +
-        `Wallet: \`${PAYMENT_WALLET}\`\n` +
-        `Memo: \`${userId}\``,
+      `Upgrade:\n` +
+      `• Monthly → 0.1 SOL\n` +
+      `• Lifetime → 0.45 SOL\n\n` +
+      `Wallet: \`${PAYMENT_WALLET}\`\n` +
+      `Memo: \`${userId}\``,
       { parse_mode: "Markdown" }
     );
   }
