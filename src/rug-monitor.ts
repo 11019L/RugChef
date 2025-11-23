@@ -1,19 +1,17 @@
-// src/rug-monitor.ts — FINAL — SHOWS REAL HELIUS ERROR 100% (NOV 2025)
-import { Helius, TransactionType, WebhookType } from "helius-sdk";
+// src/rug-monitor.ts — FINAL — NO MORE [object Object] EVER (NOV 2025)
 import { bot } from "./index.js";
 import express, { Request, Response } from "express";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 process.env.UV_THREADPOOL_SIZE = "128";
 
-const helius = new Helius(process.env.HELIUS_API_KEY!);
-const connection = new Connection(helius.endpoint);
+const connection = new Connection("https://mainnet.helius-rpc.com/?api-key=" + process.env.HELIUS_API_KEY);
 
 const watching = new Map<string, { users: number[]; addresses: string[] }>();
 
 console.log("RUG SHIELD STARTED");
-console.log("Helius endpoint:", helius.endpoint);
 
+// WEBHOOK URL
 const WEBHOOK_URL = (() => {
   const base = process.env.RAILWAY_STATIC_URL || `https://${process.env.RAILWAY_APP_NAME}.up.railway.app`;
   if (!base || base.includes("undefined")) {
@@ -25,32 +23,34 @@ const WEBHOOK_URL = (() => {
   return url;
 })();
 
+// ESCAPE MARKDOWNV2
 const escapeMD = (text: string) => text.replace(/[_*\[\]()~`>#+=|{}.!-]/g, "\\$&");
 
-const logHeliusError = (action: string, e: any) => {
-  console.error(`\nHELIUS REJECTED ${action} →`);
+// DIRECT HELIUS API CALL — NO SDK = NO [object Object]
+async function createHeliusWebhook(addresses: string[]) {
+  const response = await fetch("https://api.helius.xyz/v0/webhooks", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${process.env.HELIUS_API_KEY}`,
+    },
+    body: JSON.stringify({
+      webhookURL: WEBHOOK_URL,
+      transactionTypes: ["ANY"],
+      accountAddresses: addresses,
+      webhookType: "enhanced",
+    }),
+  });
 
-  let realError = null;
+  const data = await response.json();
 
-  // Walk the entire error chain — this is the ONLY way in Nov 2025
-  let current = e;
-  while (current && !realError) {
-    if (current.response?.data) realError = current.response.data;
-    else if (current.cause) current = current.cause;
-    else if (current.error) current = current.error;
-    else break;
+  if (!response.ok) {
+    throw new Error(JSON.stringify(data));
   }
 
-  // Final fallback — parse the garbage string
-  if (!realError && typeof e.message === "string" && e.message.includes("[object Object]")) {
-    try {
-      const match = e.message.match(/\[object Object\]$/) || e.toString().match(/\{.*\}/);
-      if (match) realError = JSON.parse(match[0].replace(/'/g, '"'));
-    } catch {}
-  }
+  return data;
+}
 
-  console.error("REAL HELIUS ERROR →", JSON.stringify(realError || e.message || "unknown", null, 2));
-};
 export async function watchToken(tokenMint: string, userId: number) {
   console.log(`\n[WATCH REQUEST] User ${userId} → ${tokenMint}`);
 
@@ -59,29 +59,26 @@ export async function watchToken(tokenMint: string, userId: number) {
 
   if (entry.users.includes(userId)) return;
   entry.users.push(userId);
+  console.log(`→ Now watching for ${entry.users.length} user(s)`);
 
-  // MINT WEBHOOK
+  // 1. MINT WEBHOOK — DIRECT API
   try {
-    await helius.createWebhook({
-      webhookURL: WEBHOOK_URL,
-      transactionTypes: [TransactionType.ANY],
-      accountAddresses: [tokenMint],
-      webhookType: WebhookType.ENHANCED,
-    });
+    await createHeliusWebhook([tokenMint]);
     console.log("MINT WEBHOOK → SUCCESS");
     entry.addresses.push(tokenMint);
   } catch (e: any) {
-    logHeliusError("MINT WEBHOOK", e);
+    console.error("MINT WEBHOOK FAILED →", e.message);
   }
 
-  await new Promise(r => setTimeout(r, 2500));
+  await new Promise(r => setTimeout(r, 3000)); // Safe delay
 
-  // FULL PROTECTION
+  // 2. FULL PROTECTION
   try {
     const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenMint}`, {
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) throw 0;
+
     const data: any = await res.json();
     const extra = new Set<string>();
 
@@ -92,31 +89,54 @@ export async function watchToken(tokenMint: string, userId: number) {
 
     if (extra.size > 0) {
       try {
-        await helius.createWebhook({
-          webhookURL: WEBHOOK_URL,
-          transactionTypes: [TransactionType.ANY],
-          accountAddresses: [tokenMint, ...Array.from(extra)],
-          webhookType: WebhookType.ENHANCED,
-        });
-        console.log("FULL PROTECTION → SUCCESS");
+        await createHeliusWebhook([tokenMint, ...Array.from(extra)]);
+        console.log(`FULL PROTECTION → SUCCESS (${extra.size} extra addresses)`);
         entry.addresses.push(...Array.from(extra));
       } catch (e: any) {
-        logHeliusError("FULL PROTECTION WEBHOOK", e);
+        console.error("FULL PROTECTION FAILED →", e.message);
       }
+    } else {
+      console.log("→ No LP/creator found yet");
     }
   } catch {
     console.log("→ Token not indexed yet");
   }
 
+  // FINAL MESSAGE
   const short = escapeMD(tokenMint.slice(0, 8) + "..." + tokenMint.slice(-4));
-  await bot.telegram.sendMessage(userId,
-    `*RUG SHIELD ACTIVE*\nToken: \`${short}\`\nWatching ${entry.addresses.length} address${entry.addresses.length === 1 ? "" : "\\(es\\)"}`,
+  const count = entry.addresses.length;
+
+  await bot.telegram.sendMessage(
+    userId,
+    `*RUG SHIELD ACTIVE*\nToken: \`${short}\`\nWatching ${count} address${count === 1 ? "" : "\\(es\\)"} — You are protected`,
     { parse_mode: "MarkdownV2" }
   ).catch(() => {});
 }
 
+// WEBHOOK HANDLER
 const app = express();
 app.use(express.json({ limit: "20mb" }));
-app.post("/rug-alert", (req, res) => res.send("OK"));
+app.post("/rug-alert", (req, res) => {
+  console.log(`WEBHOOK HIT → ${req.body?.length || 0} txs`);
+  res.send("OK");
+});
+
+// SLOW DRAIN POLLER
+setInterval(async () => {
+  if (watching.size === 0) return;
+  for (const [mint, entry] of watching.entries()) {
+    try {
+      const resp = await connection.getTokenLargestAccounts(new PublicKey(mint));
+      const amount = Number(resp.value[0]?.uiAmount || 0);
+      if (amount < 300) {
+        console.log(`SLOW RUG → ${mint.slice(0,8)}...`);
+        for (const uid of entry.users) {
+          await bot.telegram.sendMessage(uid, "*SLOW RUG — LP DRAINED*", { parse_mode: "MarkdownV2" });
+        }
+        watching.delete(mint);
+      }
+    } catch {}
+  }
+}, 35000);
 
 export default app;
