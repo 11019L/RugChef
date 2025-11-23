@@ -11,7 +11,20 @@ dotenv.config();
 const bot = new Telegraf(process.env.BOT_TOKEN!);
 export { bot };
 export const PAYMENT_WALLET = process.env.PAYMENT_WALLET!;
+// ────── AUTO-FIX RAILWAY_STATIC_URL (2025 RAILWAY FIX) ──────
+const BASE_URL = process.env.RAILWAY_STATIC_URL 
+  ?? process.env.RENDER_EXTERNAL_URL 
+  ?? process.env.HEROKU_URL 
+  ?? process.env.URL 
+  ?? `https://${process.env.RAILWAY_APP_NAME}.up.railway.app`; // ← Railway fallback
 
+if (!BASE_URL || BASE_URL.includes("undefined")) {
+  console.error("FATAL: Webhook URL is missing! Set RAILWAY_STATIC_URL in Railway variables");
+  process.exit(1);
+}
+
+const webhookUrl = `${BASE_URL.replace(/\/$/, "")}/rug-alert`;
+console.log(`Webhook URL resolved → ${webhookUrl}`);
 // === USER DATA STORAGE ===
 export const userData = new Map<
   number,
