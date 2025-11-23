@@ -60,11 +60,12 @@ export async function watchToken(tokenMint: string, userId: number) {
     console.log("MINT WEBHOOK → SUCCESS");
     entry.addresses.push(tokenMint);
   } catch (e: any) {
-    console.error("MINT WEBHOOK FAILED");
-    if (e.response?.data) {
-      console.error("Helius error:", JSON.stringify(e.response.data, null, 2));
-    } else {
-      console.error("Error:", e.message || String(e));
+  console.error("HELIUS REJECTED WEBHOOK →", 
+    e.response?.data?.error?.message || 
+    e.response?.data || 
+    e.message || 
+    "unknown error"
+      );
     }
   }
 
@@ -97,12 +98,13 @@ export async function watchToken(tokenMint: string, userId: number) {
         console.log("FULL PROTECTION WEBHOOK → SUCCESS");
         entry.addresses.push(...Array.from(extra));
       } catch (e: any) {
-        console.error("FULL PROTECTION FAILED");
-        if (e.response?.data) {
-          console.error("Helius error:", JSON.stringify(e.response.data, null, 2));
-        } else {
-          console.error("Error:", e.message || String(e));
-        }
+       console.error("HELIUS REJECTED WEBHOOK →", 
+        e.response?.data?.error?.message || 
+        e.response?.data || 
+        e.message || 
+       "unknown error"
+      );
+     }
       }
     } else {
       console.log("→ No LP/creator found yet");
