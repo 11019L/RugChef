@@ -35,7 +35,15 @@ export const userData = new Map<
     tokens: string[];
   }
 >();
-
+// Add this near the top of index.ts
+export const WEBHOOK_URL = (() => {
+  const base = process.env.RAILWAY_STATIC_URL || `https://${process.env.RAILWAY_APP_NAME}.up.railway.app`;
+  if (!base || base.includes("undefined")) {
+    console.error("Set RAILWAY_STATIC_URL in Railway variables!");
+    process.exit(1);
+  }
+  return `${base.replace(/\/$/, "")}/rug-alert`;
+})();
 // === HELIUS (for quick mint watch) ===
 const helius = new Helius(process.env.HELIUS_API_KEY!);
 
