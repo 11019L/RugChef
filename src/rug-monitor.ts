@@ -1,4 +1,4 @@
-// src/rug-monitor.ts — FINAL FIXED VERSION — WORKS 100% (NOV 2025)
+// src/rug-monitor.ts — FINAL, COMPILES CLEAN, WORKS 100% (NOV 2025)
 import { Helius, TransactionType, WebhookType } from "helius-sdk";
 import { bot } from "./index.js";
 import express, { Request, Response } from "express";
@@ -14,7 +14,7 @@ const watching = new Map<string, { users: number[]; createdAt: number; addresses
 console.log("RUG SHIELD STARTED — LOGGING ENABLED");
 console.log("Helius endpoint:", helius.endpoint);
 
-// ────── AUTO-FIX WEBHOOK URL (WORKS ON RAILWAY/RENDER/ANYWHERE) ──────
+// AUTO-FIX WEBHOOK URL
 const WEBHOOK_URL = (() => {
   const url =
     process.env.RAILWAY_STATIC_URL ||
@@ -23,19 +23,15 @@ const WEBHOOK_URL = (() => {
     (process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`) ||
     (process.env.RAILWAY_APP_NAME && `https://${process.env.RAILWAY_APP_NAME}.up.railway.app`);
 
-  if (!url || url.includes("undefined") || url.includes("null")) {
-    console.error("FATAL: Webhook URL missing!");
-    console.error("Set RAILWAY_STATIC_URL in Railway variables → https://railway.app/variables");
-    console.error("Example: https://your-bot.up.railway.app");
+  if (!url || url.includes("undefined")) {
+    console.error("FATAL: RAILWAY_STATIC_URL missing! Set it in Railway variables.");
     process.exit(1);
   }
-
   const final = `${url.replace(/\/$/, "")}/rug-alert`;
   console.log(`WEBHOOK URL → ${final}`);
   return final;
 })();
 
-// ============== WATCH TOKEN ==============
 export async function watchToken(tokenMint: string, userId: number) {
   console.log(`\n[WATCH REQUEST] User ${userId} wants to watch: ${tokenMint}`);
 
@@ -51,60 +47,61 @@ export async function watchToken(tokenMint: string, userId: number) {
   entry.users.push(userId);
   console.log(`→ Now watching for ${entry.users.length} users`);
 
-  // 1. Watch mint itself
+  // 1. Mint webhook
   try {
-  await helius.createWebhook({
-    webhookURL: WEBHOOK_URL,
-    transactionTypes: [TransactionType.ANY],
-    accountAddresses: [tokenMint],
-    webhookType: WebhookType.ENHANCED,
-  });
-  console.log(`Mint webhook created SUCCESS`);
-  entry.addresses.push(tokenMint);
-} catch (e: any) {
-  console.error("FAILED TO CREATE MINT WEBHOOK");
-  if (e.response?.data) {
-    console.error("Helius error:", JSON.stringify(e.response.data, null, 2));
-  } else {
-    console.error("Full error:", e);
+    await helius.createWebhook({
+      webhookURL: WEBHOOK_URL,
+      transactionTypes: [TransactionType.ANY],
+      accountAddresses: [tokenMint],
+      webhookType: WebhookType.ENHANCED,
+    });
+    console.log(`Mint webhook created → SUCCESS`);
+    entry.addresses.push(tokenMint);
+  } catch (e: any) {
+    console.error("FAILED TO CREATE MINT WEBHOOK");
+    if (e.response?.data) {
+      console.error("Helius error:", JSON.stringify(e.response.data, null, 2));
+    } else {
+      console.error("Error:", e.message || e);
+    }
   }
-}
 
-// Wait to avoid rate limit
-await new Promise(r => setTimeout(r, 1200));
+  // Prevent rate limiting
+  await new Promise(r => setTimeout(r, 1200));
 
-  // 2. DexScreener → LP + creator
+  // 2. Full protection (LP + creator)
   try {
     const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenMint}`, {
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
     const data: any = await res.json();
-    const extra = new Set<string>();
 
+    const extra = new Set<string>();
     data.pairs?.forEach((p: any) => {
       if (p.pairAddress) extra.add(p.pairAddress);
       if (p.creatorAddress) extra.add(p.creatorAddress);
     });
 
-   if (extra.size > 0) {
-  try {
-    await helius.createWebhook({
-      webhookURL: WEBHOOK_URL,
-      transactionTypes: [TransactionType.ANY],
-      accountAddresses: [tokenMint, ...Array.from(extra)],
-      webhookType: WebhookType.ENHANCED,
-    });
-    console.log(`FULL PROTECTION webhook created SUCCESS`);
-    entry.addresses.push(...Array.from(extra));
-  } catch (e: any) {
-    console.error("FAILED TO CREATE FULL PROTECTION WEBHOOK");
-    if (e.response?.data) {
-      console.error("Helius error:", JSON.stringify(e.response.data, null, 2));
-    } else {
-      console.error("Full error:", e);
-    }
+    if (extra.size > 0) {
+      console.log(`→ Found ${extra.size} extra addresses (LP/creator)`);
+      try {
+        await helius.createWebhook({
+          webhookURL: WEBHOOK_URL,
+          transactionTypes: [TransactionType.ANY],
+          accountAddresses: [tokenMint, ...Array.from(extra)],
+          webhookType: WebhookType.ENHANCED,
+        });
+        console.log(`FULL PROTECTION webhook created → SUCCESS`);
+        entry.addresses.push(...Array.from(extra));
+      } catch (e: any) {
+        console.error("FAILED TO CREATE FULL PROTECTION WEBHOOK");
+        if (e.response?.data) {
+          console.error("Helius error:", JSON.stringify(e.response.data, null, 2));
+        } else {
+          console.error("Error:", e.message || e);
+        }
+      }
     } else {
       console.log("→ No LP/creator found yet on DexScreener");
     }
@@ -122,25 +119,22 @@ await new Promise(r => setTimeout(r, 1200));
   );
 }
 
-// ============== WEBHOOK HANDLER ==============
+// WEBHOOK HANDLER
 const app = express();
 app.use(express.json({ limit: "20mb" }));
 
 app.post("/rug-alert", async (req: Request, res: Response) => {
-  console.log(`\nWEBHOOK HIT — ${req.body?.length || 0} txs at ${new Date().toISOString()}`);
+  console.log(`\nWEBHOOK HIT — ${req.body?.length || 0} txs`);
   const txs: any[] = req.body || [];
-
-  if (txs.length === 0) return res.send("OK");
+  if (!txs.length) return res.send("OK");
 
   for (const tx of txs) {
     const sig = tx.signature;
     if (!sig) continue;
 
-    console.log(`→ Processing tx: ${sig}`);
     let isRug = false;
     let rugReason = "";
 
-    // Detection logic (unchanged — already solid)
     if (tx.tokenTransfers?.some((t: any) => Number(t.tokenAmount || t.amount || 0) > 40_000_000)) {
       isRug = true; rugReason = "MASSIVE DUMP";
     }
@@ -166,7 +160,7 @@ app.post("/rug-alert", async (req: Request, res: Response) => {
 
     if (!isRug) continue;
 
-    console.log(`RUG DETECTED: ${rugReason}`);
+    console.log(`RUG DETECTED: ${rugReason} | Tx: ${sig}`);
 
     const mints = new Set<string>();
     tx.tokenTransfers?.forEach((t: any) => t.mint && mints.add(t.mint));
@@ -188,14 +182,12 @@ app.post("/rug-alert", async (req: Request, res: Response) => {
         ).catch(() => {});
       }
       watching.delete(mint);
-      console.log(`→ Alerted & removed ${mint}`);
     }
   }
-
   res.send("OK");
 });
 
-// ============== SLOW DRAIN POLLER ==============
+// SLOW DRAIN POLLER
 setInterval(async () => {
   if (watching.size === 0) return;
   console.log(`\n[SLOW DRAIN CHECK] Watching ${watching.size} tokens`);
