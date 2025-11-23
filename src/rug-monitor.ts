@@ -27,30 +27,30 @@ const WEBHOOK_URL = (() => {
 
 const escapeMD = (text: string) => text.replace(/[_*\[\]()~`>#+=|{}.!-]/g, "\\$&");
 
-// THIS IS THE ONLY ERROR LOGGER THAT WORKS IN 2025
 const logHeliusError = (action: string, e: any) => {
-  let realError = "unknown";
-
-  // CASE 1: Helius SDK wraps error in string + cause
-  if (e.message?.includes("createWebhook") && e.cause) {
-    const cause = e.cause;
-    realError = cause.response?.data || cause.message || cause;
-  }
-  // CASE 2: Normal Axios error
-  else if (e.response?.data) {
-    realError = e.response.data;
-  }
-  // CASE 3: Fallback
-  else {
-    realError = e.message || e;
-  }
-
   console.error(`\nHELIUS REJECTED ${action} →`);
-  console.error("REAL ERROR ↓↓↓");
-  console.error(JSON.stringify(realError, null, 2));
-  console.error("↑↑↑ END ERROR\n");
-};
 
+  let realError = null;
+
+  // Walk the entire error chain — this is the ONLY way in Nov 2025
+  let current = e;
+  while (current && !realError) {
+    if (current.response?.data) realError = current.response.data;
+    else if (current.cause) current = current.cause;
+    else if (current.error) current = current.error;
+    else break;
+  }
+
+  // Final fallback — parse the garbage string
+  if (!realError && typeof e.message === "string" && e.message.includes("[object Object]")) {
+    try {
+      const match = e.message.match(/\[object Object\]$/) || e.toString().match(/\{.*\}/);
+      if (match) realError = JSON.parse(match[0].replace(/'/g, '"'));
+    } catch {}
+  }
+
+  console.error("REAL HELIUS ERROR →", JSON.stringify(realError || e.message || "unknown", null, 2));
+};
 export async function watchToken(tokenMint: string, userId: number) {
   console.log(`\n[WATCH REQUEST] User ${userId} → ${tokenMint}`);
 
