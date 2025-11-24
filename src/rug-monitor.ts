@@ -2,6 +2,7 @@
 import { bot } from "./index.js";
 import express, { Request, Response } from "express";
 import { Connection, PublicKey } from "@solana/web3.js";
+import { WEBHOOK_URL } from "./index.js";
 
 process.env.UV_THREADPOOL_SIZE = "128";
 
