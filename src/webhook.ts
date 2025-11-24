@@ -1,13 +1,10 @@
-// src/payment-webhook.ts
+// src/payment-webhook.ts — FINAL FIXED VERSION (NOV 2025)
 import express, { Request, Response } from "express";
 import { Helius } from "helius-sdk";
 import { bot } from "./index.js";
 import { userData } from "./index.js";
 
-// ────── THE ONLY WAY THAT WORKS IN 2025 ──────
-// Use a plain object instead of polluting global
 const processedPayments = new Set<string>();
-
 const app = express();
 app.use(express.json({ limit: "20mb" }));
 
@@ -22,7 +19,7 @@ app.post("/helius", async (req: Request, res: Response) => {
     if (!tx.signature || !tx.nativeTransfers) continue;
 
     const payment = tx.nativeTransfers.find(
-      (t: any) => t.toUserAccount === PAYMENT_WALLET && t.amount >= 90_000_000
+      (t: any) => t.toUserAccount === PAYMENT_WALLET && t.amount >= 90_000_000 // 0.09+ SOL
     );
     if (!payment) continue;
 
@@ -30,13 +27,14 @@ app.post("/helius", async (req: Request, res: Response) => {
     const sig = tx.signature;
     const desc = (tx.description || "").toLowerCase();
 
-    // Prevent duplicates
+    // Prevent double processing
     if (processedPayments.has(sig)) {
       console.log(`→ Already processed: ${sig}`);
       continue;
     }
     processedPayments.add(sig);
 
+    // Extract Telegram user ID from memo/description
     const match = desc.match(/\d{7,12}/);
     if (!match) {
       console.log(`→ No Telegram ID in memo`);
@@ -48,28 +46,42 @@ app.post("/helius", async (req: Request, res: Response) => {
 
     try {
       if (amountSOL >= 0.44) {
-        userData.set(userId, { trials: 0, plan: "lifetime", tokens: [], expires: undefined });
+        // LIFETIME PLAN
+        userData.set(userId, {
+          trials: 0,
+          plan: "lifetime",
+          expires: undefined,
+        });
+
         await bot.telegram.sendMessage(
           userId,
-          `*LIFETIME UNLOCKED*\n\nAmount: ${amountSOL.toFixed(4)} SOL\nhttps://solscan.io/tx/${sig}`,
+          `*LIFETIME ACCESS UNLOCKED*\n\n` +
+            `Amount: ${amountSOL.toFixed(4)} SOL\n` +
+            `Tx: https://solscan.io/tx/${sig}\n\n` +
+            `You now have unlimited protection forever!`,
           { parse_mode: "Markdown" }
         );
       } else {
+        // MONTHLY PLAN (any payment under 0.44 SOL = monthly)
         userData.set(userId, {
           trials: 0,
           plan: "monthly",
-          tokens: [],
-          expires: Date.now() + 30 * 24 * 60 * 60 * 1000,
+          expires: Date.now() + 30 * 24 * 60 * 60 * 1000, // 30 days
         });
+
         await bot.telegram.sendMessage(
           userId,
-          `*MONTHLY ACTIVATED*\n\nAmount: ${amountSOL.toFixed(4)} SOL (30 days)\nhttps://solscan.io/tx/${sig}`,
+          `*MONTHLY ACCESS ACTIVATED*\n\n` +
+            `Amount: ${amountSOL.toFixed(4)} SOL\n` +
+            `Valid for 30 days\n` +
+            `Tx: https://solscan.io/tx/${sig}`,
           { parse_mode: "Markdown" }
         );
       }
-      console.log(`→ Upgraded user ${userId}`);
+
+      console.log(`→ SUCCESS: Upgraded user ${userId}`);
     } catch (err: any) {
-      console.error(`→ Failed to message ${userId}:`, err.message);
+      console.error(`→ Failed to message user ${userId}:`, err.message);
     }
   }
 
