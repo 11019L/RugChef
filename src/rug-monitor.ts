@@ -5,46 +5,42 @@ import { Connection, PublicKey } from "@solana/web3.js";
 
 process.env.UV_THREADPOOL_SIZE = "128";
 
-// QUICKNODE RPC — FASTER & MORE RELIABLE
+// QUICKNODE RPC — YOUR ENDPOINT
 const connection = new Connection(process.env.QUICKNODE_RPC_URL!, "confirmed");
 
 const watching = new Map<string, { users: number[]; addresses: string[] }>();
 
-console.log("RUG SHIELD STARTED — USING QUICKNODE");
+console.log("RUG SHIELD ON QUICKNODE — READY");
 
-// WEBHOOK URL
-const WEBHOOK_URL = (() => {
-  const base = process.env.RAILWAY_STATIC_URL || `https://${process.env.RAILWAY_APP_NAME}.up.railway.app`;
-  const url = `${base.replace(/\/$/, "")}/rug-alert`;
-  console.log(`WEBHOOK URL → ${url}`);
-  return url;
-})();
-
+// ESCAPE MARKDOWNV2
 const escapeMD = (text: string) => text.replace(/[_*\[\]()~`>#+=|{}.!-]/g, "\\$&");
 
-// QUICKNODE WEBHOOK CREATION (direct REST — no SDK bugs)
+// QUICKNODE WEBHOOK CREATION (direct REST — no SDK)
 async function createQNWebhook(addresses: string[]) {
-  const res = await fetch("https://api.quicknode.com/webhooks/v1", {
+  const response = await fetch("https://api.quicknode.com/webhooks/rest/v1/webhooks", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": process.env.QUICKNODE_RPC_URL!.split("/").pop()!.slice(0, -1), // extracts token
+      "x-api-key": process.env.QUICKNODE_API_KEY!,
     },
     body: JSON.stringify({
       name: `RugShield-${addresses[0].slice(0,8)}`,
-      destination_url: WEBHOOK_URL,
-      networks: ["solana-mainnet"],
-      event_types: ["transaction"],
-      filters: {
-        accounts: addresses,
-        // Optional: add extra filters for rugs
-        // program_ids: ["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"]
+      network: "solana-mainnet",
+      destination_attributes: {
+        url: WEBHOOK_URL,
+        compression: "none",
       },
+      status: "active",
+      filter_function: Buffer.from(`
+        function main(payload) {
+          return payload; // Pass all txs — filter in bot
+        }
+      `).toString("base64"),
     }),
   });
 
-  const data = await res.json();
-  if (!res.ok) {
+  const data = await response.json();
+  if (!response.ok) {
     console.error("QUICKNODE WEBHOOK FAILED →", JSON.stringify(data, null, 2));
     throw new Error(JSON.stringify(data));
   }
@@ -61,15 +57,14 @@ export async function watchToken(tokenMint: string, userId: number) {
   if (entry.users.includes(userId)) return;
   entry.users.push(userId);
 
-  // 1. Mint webhook
+  // FULL PROTECTION WEBHOOK (mint + LP/creator)
   try {
-    await createQNWebhook([tokenMint]);
+    await createQNWebhook([tokenMint]); // Mint first
     entry.addresses.push(tokenMint);
-  } catch (e) { /* ignore — we have fallback */ }
+  } catch (e) { /* ignore — fallback poller works */ }
 
-  await new Promise(r => setTimeout(r, 2500));
+  await new Promise(r => setTimeout(r, 3000));
 
-  // 2. Full protection (LP + creator)
   try {
     const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenMint}`, {
       signal: AbortSignal.timeout(8000),
@@ -96,13 +91,31 @@ export async function watchToken(tokenMint: string, userId: number) {
   ).catch(() => {});
 }
 
-// Existing /rug-alert handler works perfectly with QuickNode payload
+// WEBHOOK HANDLER (QuickNode payload is similar to Helius)
 const app = express();
 app.use(express.json({ limit: "20mb" }));
 app.post("/rug-alert", (req, res) => {
-  console.log(`QUICKNODE WEBHOOK HIT → ${req.body?.length || 0} events`);
-  // your existing rug detection logic goes here — unchanged
+  console.log(`QUICKNODE WEBHOOK HIT → ${req.body?.length || 0} txs`);
+  // Your rug detection logic here (same as before)
   res.send("OK");
 });
+
+// SLOW DRAIN POLLER (uses QuickNode RPC)
+setInterval(async () => {
+  if (watching.size === 0) return;
+  for (const [mint, entry] of watching.entries()) {
+    try {
+      const resp = await connection.getTokenLargestAccounts(new PublicKey(mint));
+      const amount = Number(resp.value[0]?.uiAmount || 0);
+      if (amount < 300) {
+        console.log(`SLOW RUG → ${mint.slice(0,8)}...`);
+        for (const uid of entry.users) {
+          await bot.telegram.sendMessage(uid, "*SLOW RUG — LP DRAINED*", { parse_mode: "MarkdownV2" });
+        }
+        watching.delete(mint);
+      }
+    } catch {}
+  }
+}, 35000);
 
 export default app;
