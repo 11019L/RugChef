@@ -1,4 +1,4 @@
-// src/index.ts — FINAL WITH $20 MONTHLY + 0.45 SOL LIFETIME (NOV 2025)
+// src/index.ts — FINAL HTML VERSION (BEST IN 2025)
 import { Telegraf } from "telegraf";
 import { watchToken } from "./rug-monitor.js";
 import rugMonitor from "./rug-monitor.js";
@@ -7,26 +7,26 @@ const bot = new Telegraf(process.env.BOT_TOKEN!);
 export { bot };
 export const PAYMENT_WALLET = process.env.PAYMENT_WALLET!;
 
-// ONE AND ONLY USER DATA
 export const userData = new Map<
   number,
   { trials: number; plan: "free" | "monthly" | "lifetime"; expires?: number }
 >();
 
-rugMonitor.listen(3000, () => console.log("Server running on port 3000"));
+rugMonitor.listen(3000, () => console.log("Server running"));
 
 bot.start(async (ctx) => {
-  await ctx.replyWithMarkdownV2(
-    "*WELCOME TO RUGCHEF*\\.\n\n" +
-    "Protects you from\\:\n" +
-    "• Massive dumps\n" +
-    "• LP drains\n" +
-    "• Freeze and authority revoke\n\n" +
-    "*Pricing*\n" +
-    "• Free trial — 2 tokens\n" +
-    "• Monthly — *\\$20 USD*\n" +
-    "• Lifetime — *0\\.45 SOL* \\(one\\-time\\)\n\n" +
-    "Just send any pump\\.fun token address to begin"
+  await ctx.reply(
+    `<b>WELCOME TO RUGCHEF</b>\n\n` +
+    `Real-time protection from:\n` +
+    `• Massive dumps\n` +
+    `• LP drains\n` +
+    `• Freeze / authority revoke\n\n` +
+    `<b>Pricing:</b>\n` +
+    `• Free trial — 2 tokens\n` +
+    `• Monthly — <b>$20 USD</b>\n` +
+    `• Lifetime — <b>0.45 SOL</b> (one-time)\n\n` +
+    `Send any pump.fun token to begin`,
+    { parse_mode: "HTML" }
   );
 });
 
@@ -38,7 +38,6 @@ bot.on("text", async (ctx) => {
 
   let user = userData.get(userId) || { trials: 0, plan: "free" };
 
-  // Check monthly expiry
   if (user.plan === "monthly" && user.expires && user.expires < Date.now()) {
     user.plan = "free";
     user.trials = 0;
@@ -53,31 +52,33 @@ bot.on("text", async (ctx) => {
     const short = mint.slice(0, 8) + "..." + mint.slice(-4);
 
     if (user.plan === "lifetime") {
-      await ctx.replyWithMarkdownV2(`*LIFETIME ACTIVE*\nProtecting \`${short}\``);
+      await ctx.reply(`<b>LIFETIME ACTIVE</b>\nProtecting <code>${short}</code>`, { parse_mode: "HTML" });
     } else if (user.plan === "monthly") {
-      await ctx.replyWithMarkdownV2(`*MONTHLY ACTIVE*\nProtecting \`${short}\``);
+      await ctx.reply(`<b>MONTHLY ACTIVE</b>\nProtecting <code>${short}</code>`, { parse_mode: "HTML" });
     } else {
-      await ctx.replyWithMarkdownV2(
-        `*FREE TRIAL ${user.trials}/2*\n` +
-          `Protecting \`${short}\`\n` +
-          "One more free • Then choose Monthly ($20) or Lifetime (0.45 SOL)"
+      await ctx.reply(
+        `<b>FREE TRIAL ${user.trials}/2</b>\n` +
+        `Protecting <code>${short}</code>\n` +
+        `One more free • Then choose Monthly ($20) or Lifetime (0.45 SOL)`,
+        { parse_mode: "HTML" }
       );
     }
 
     await watchToken(mint, userId);
   } else {
-    await ctx.replyWithMarkdownV2(
-      "*FREE TRIALS USED (2/2)*\n\n" +
-        "*Choose your plan:*\n\n" +
-        "*Monthly* — $20 USD / 30 days\n" +
-        "*Lifetime* — 0.45 SOL (one-time)\n\n" +
-        "Send exactly *0.45 SOL* for lifetime to:\n\n" +
-        `\`${PAYMENT_WALLET}\`\n\n` +
-        `*Memo*: \`${userId}\`\n\n` +
-        "Payment detected instantly • Lifetime activated forever"
+    await ctx.reply(
+      `<b>FREE TRIALS USED (2/2)</b>\n\n` +
+      `<b>Choose your plan:</b>\n\n` +
+      `• Monthly — $20 USD / 30 days\n` +
+      `• Lifetime — 0.45 SOL (one-time)\n\n` +
+      `Send <b>0.45 SOL</b> for lifetime to:\n` +
+      `<code>${PAYMENT_WALLET}</code>\n\n` +
+      `<b>Memo:</b> <code>${userId}</code>\n\n` +
+      `Payment detected instantly`,
+      { parse_mode: "HTML" }
     );
   }
 });
 
 bot.launch();
-console.log("RUGCHEF LIVE — $20 MONTHLY + 0.45 SOL LIFETIME READY");
+console.log("RUGCHEF LIVE — HTML MODE (BEST)");
