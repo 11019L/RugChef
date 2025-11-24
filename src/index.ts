@@ -18,16 +18,15 @@ rugMonitor.listen(3000, () => console.log("Server running on port 3000"));
 bot.start(async (ctx) => {
   await ctx.replyWithMarkdownV2(
     "*WELCOME TO RUGCHEF*\\.\n\n" +
-    "Real\\-time protection from\\:\n" +
+    "Protects you from\\:\n" +
     "• Massive dumps\n" +
     "• LP drains\n" +
-    "• Freeze\\/revoke\n\n" +
-    "*Pricing\\:*\n" +
+    "• Freeze and authority revoke\n\n" +
+    "*Pricing*\n" +
     "• Free trial — 2 tokens\n" +
     "• Monthly — *\\$20 USD*\n" +
     "• Lifetime — *0\\.45 SOL* \\(one\\-time\\)\n\n" +
-    "Send any pump\\.fun token to start",
-    { disable_web_page_preview: true }
+    "Just send any pump\\.fun token address to begin"
   );
 });
 
