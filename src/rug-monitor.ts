@@ -1,9 +1,10 @@
-// src/rug-monitor.ts — BULLETPROOF RUG DETECTION (NOV 2025)
+// src/rug-monitor.ts — FINAL WORKING RUG DETECTION (NOV 2025)
 import { Helius, TransactionType, WebhookType } from "helius-sdk";
 import { bot } from "./index.js";
 import express from "express";
 import { Connection, PublicKey } from "@solana/web3.js";
 
+// ────── Init ──────
 const helius = new Helius(process.env.HELIUS_API_KEY!);
 const connection = new Connection(helius.endpoint);
 
@@ -11,11 +12,13 @@ const watching = new Map<string, number[]>();
 
 const WEBHOOK_URL = (() => {
   const base = process.env.RAILWAY_STATIC_URL || `https://${process.env.RAILWAY_APP_NAME}.up.railway.app`;
-  const url = `https://${base.replace(/^https?:\/\//, "").replace(/\/+$/, "")}/webhook`;
-  console.log("WEBHOOK URL →", url);
-  return url;
+  const clean = base.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  return `https://${clean}/webhook`;
 })();
 
+console.log("WEBHOOK URL →", WEBHOOK_URL);
+
+// ────── Watch Token (creates webhook) ──────
 export async function watchToken(mint: string, userId: number) {
   console.log(`\n[WATCH] User ${userId} → ${mint}`);
 
@@ -42,10 +45,14 @@ export async function watchToken(mint: string, userId: number) {
   );
 }
 
-// RUG DETECTION LOGIC (in webhook handler)
-app.post("/webhook", (req, res) => {
-  const txs = req.body || [];
-  console.log("WEBHOOK HIT →", txs.length, "txs");
+// ────── Express App (must be declared first) ──────
+const app = express();
+app.use(express.json({ limit: "10mb" }));
+
+// ────── Real Rug Detection (in webhook) ──────
+app.post("/webhook", async (req, res) => {
+  const txs: any[] = req.body || [];
+  console.log("WEBHOOK HIT →", txs.length, "tx(s)");
 
   for (const tx of txs) {
     const sig = tx.signature;
@@ -54,60 +61,47 @@ app.post("/webhook", (req, res) => {
     let isRug = false;
     let reason = "";
 
-    // 1. Massive token dump (>40M tokens)
-    if (tx.tokenTransfers?.some((t: any) => Number(t.tokenAmount || t.amount || 0) > 40_000_000)) {
+    // 1. Massive dump (>40M tokens)
+    if (tx.tokenTransfers?.some((t: any) => Number(t.tokenAmount || 0) > 40_000_000)) {
       isRug = true;
       reason = "MASSIVE DUMP";
     }
 
-    // 2. LP drain (>1.5 SOL out)
+    // 2. Big SOL drain from LP (>1.5 SOL out)
     if (tx.nativeTransfers?.some((t: any) => t.amount < -1_500_000_000)) {
       isRug = true;
       reason = reason || "LP DRAIN";
     }
 
-    // 3. Revoke/freeze keywords in description
+    // 3. Revoke / freeze / burn authority
     if (/revoke|freeze|burn|authority|disable/i.test(tx.description || "")) {
       isRug = true;
-      reason = reason || "AUTHORITY REVOKE";
-    }
-
-    // 4. Token program instructions (setAuthority to null)
-    const instructions = tx.transaction?.message?.instructions || [];
-    for (const ix of instructions) {
-      if (ix.programId === "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA") {
-        if (ix.parsed?.type === "setAuthority" && (!ix.parsed.info.newAuthority || ix.parsed.info.newAuthority === "11111111111111111111111111111111")) {
-          isRug = true;
-          reason = reason || "AUTHORITY REVOKED";
-        }
-        if (ix.parsed?.type === "freezeAccount") {
-          isRug = true;
-          reason = reason || "FREEZE";
-        }
-      }
+      reason = reason || "AUTHORITY REVOKED";
     }
 
     if (isRug) {
-      console.log(`RUG DETECTED: ${reason} | Tx: ${sig}`);
+      console.log(`RUG DETECTED → ${reason} | https://solscan.io/tx/${sig}`);
 
-      // Find affected mint
+      // Find mint(s) in this tx
       const mints = new Set<string>();
       tx.tokenTransfers?.forEach((t: any) => t.mint && mints.add(t.mint));
-      if (mints.size === 0) tx.accountKeys?.forEach((k: string) => k.length === 44 && mints.add(k));
+      if (mints.size === 0) {
+        tx.accountKeys?.forEach((k: string) => k.length === 44 && mints.add(k));
+      }
 
       for (const mint of mints) {
         const users = watching.get(mint) || [];
         for (const uid of users) {
           await bot.telegram.sendMessage(
             uid,
-            `<b>RUG DETECTED — SELL NOW!</b>\n\n` +
+            `<b>RUG ALERT — SELL NOW!</b>\n\n` +
             `<b>Type:</b> ${reason}\n` +
             `<b>Tx:</b> https://solscan.io/tx/${sig}\n` +
             `<b>Chart:</b> https://dexscreener.com/solana/${mint}`,
             { parse_mode: "HTML" }
           ).catch(() => {});
         }
-        watching.delete(mint); // Stop monitoring after rug
+        watching.delete(mint);
       }
     }
   }
@@ -115,9 +109,6 @@ app.post("/webhook", (req, res) => {
   res.send("OK");
 });
 
-const app = express();
-app.use(express.json({ limit: "10mb" }));
-app.post("/webhook", (req, res) => { /* above logic */ });
-app.get("/", (_, res) => res.send("Alive"));
+app.get("/", (_, res) => res.send("RugChef alive"));
 
 export default app;
