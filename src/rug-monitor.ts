@@ -1,77 +1,71 @@
-// src/rug-monitor.ts — FINAL WITH FULL DEBUG LOGS
+// src/rug-monitor.ts — FINAL + DEBUG + NO TS ERRORS
 import { Helius, TransactionType, WebhookType } from "helius-sdk";
 import { bot } from "./index.js";
 import express from "express";
 import { Connection, PublicKey } from "@solana/web3.js";
 
-console.log("rug-monitor.ts LOADED");
+console.log("rug-monitor.ts loaded");
 
-// DEBUG: Print ALL environment variables at startup
-console.log("ENV DEBUG → HELIUS_API_KEY exists:", !!process.env.HELIUS_API_KEY);
-console.log("ENV DEBUG → HELIUS_API_KEY length:", process.env.HELIUS_API_KEY?.length || 0);
-console.log("ENV DEBUG → RAILWAY_STATIC_URL:", process.env.RAILWAY_STATIC_URL || "not set");
-console.log("ENV DEBUG → RAILWAY_APP_NAME:", process.env.RAILWAY_APP_NAME || "not set");
+// ────── DEBUG: Show env at startup ──────
+console.log("HELIUS_API_KEY exists →", !!process.env.HELIUS_API_KEY);
+console.log("HELIUS_API_KEY length →", process.env.HELIUS_API_KEY?.length || 0);
+console.log("RAILWAY_STATIC_URL →", process.env.RAILWAY_STATIC_URL || "not set");
 
-// Initialize Helius with safety check
-let helius;
-try {
-  if (!process.env.HELIUS_API_KEY) {
-    console.error("FATAL: HELIUS_API_KEY is missing or empty!");
-    process.exit(1);
-  }
-  helius = new Helius(process.env.HELIUS_API_KEY);
-  console.log("Helius SDK initialized successfully");
-  console.log("Helius RPC endpoint:", helius.endpoint);
-} catch (err: any) {
-  console.error("Helius SDK failed to initialize:", err.message);
+// ────── Helius initialization with proper typing ──────
+let helius: Helius | null = null;
+
+if (!process.env.HELIUS_API_KEY) {
+  console.error("FATAL: HELIUS_API_KEY is missing!");
+  process.exit(1);
 }
 
+try {
+  helius = new Helius(process.env.HELIUS_API_KEY);
+  console.log("Helius SDK initialized →", helius.endpoint);
+} catch (err: any) {
+  console.error("Helius init failed →", err.message);
+  process.exit(1);
+}
+
+// Fallback RPC if Helius fails
 const connection = new Connection(helius?.endpoint || "https://api.mainnet-beta.solana.com");
 
-const watching = new Map<string, number[]>();
-
-// FINAL WEBHOOK URL (100% correct)
+// ────── Final webhook URL ──────
 const WEBHOOK_URL = (() => {
   const base = process.env.RAILWAY_STATIC_URL || `https://${process.env.RAILWAY_APP_NAME}.up.railway.app`;
   const clean = base.replace(/^https?:\/\//, "").replace(/\/+$/, "");
-  const final = `https://${clean}/webhook`;
-  console.log("FINAL WEBHOOK URL →", final);
-  return final;
+  const url = `https://${clean}/webhook`;
+  console.log("WEBHOOK URL →", url);
+  return url;
 })();
 
+const watching = new Map<string, number[]>();
+
 export async function watchToken(mint: string, userId: number) {
-  console.log(`\n[WATCH REQUEST] User ${userId} → ${mint}`);
+  console.log(`\n[WATCH] User ${userId} → ${mint}`);
 
   if (!watching.has(mint)) watching.set(mint, []);
-  if (watching.get(mint)!.includes(userId)) {
-    console.log("→ Already watching for this user");
-    return;
-  }
+  if (watching.get(mint)!.includes(userId)) return;
+
   watching.get(mint)!.push(userId);
 
-  // WEBHOOK CREATION WITH FULL DEBUG
-  try {
-    console.log("Attempting to create Helius webhook...");
-    console.log("Addresses:", [mint]);
-    console.log("Webhook URL:", WEBHOOK_URL);
-
-    const webhook = await helius.createWebhook({
-      webhookURL: WEBHOOK_URL,
-      transactionTypes: [TransactionType.ANY],
-      accountAddresses: [mint],
-      webhookType: WebhookType.ENHANCED,
-    });
-
-    console.log("WEBHOOK CREATED SUCCESSFULLY!");
-    console.log("Webhook ID:", webhook.id);
-    console.log("Full response:", JSON.stringify(webhook, null, 2));
-  } catch (error: any) {
-    console.error("WEBHOOK CREATION FAILED — FULL ERROR BELOW");
-    console.error("Error name:", error.name);
-    console.error("Error message:", error.message);
-    console.error("Error stack:", error.stack);
-    console.error("Full error object:", JSON.stringify(error, null, 2));
-    console.log("Polling fallback active — bot still works");
+  // ────── Try to create webhook ──────
+  if (helius) {
+    try {
+      console.log("Creating Helius webhook...");
+      const webhook = await helius.createWebhook({
+        webhookURL: WEBHOOK_URL,
+        transactionTypes: [TransactionType.ANY],
+        accountAddresses: [mint],
+        webhookType: WebhookType.ENHANCED,
+      });
+      console.log("WEBHOOK CREATED → ID:", webhook.id);
+    } catch (error: any) {
+      console.error("WEBHOOK FAILED →", error.message || error);
+      console.log("Polling fallback is active");
+    }
+  } else {
+    console.log("Helius not available → using polling only");
   }
 
   await bot.telegram.sendMessage(
@@ -81,14 +75,15 @@ export async function watchToken(mint: string, userId: number) {
   );
 }
 
+// ────── Express server ──────
 const app = express();
 app.use(express.json({ limit: "10mb" }));
 
 app.post("/webhook", (req, res) => {
-  console.log("WEBHOOK HIT →", req.body?.length || 0, "transactions");
+  console.log("WEBHOOK HIT →", req.body?.length || 0, "txs");
   res.send("OK");
 });
 
-app.get("/", (_, res) => res.send("RugChef webhook alive"));
+app.get("/", (_, res) => res.send("RugChef alive"));
 
 export default app;
