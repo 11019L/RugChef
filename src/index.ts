@@ -23,11 +23,19 @@ if (!process.env.QUICKNODE_RPC_URL || !process.env.QUICKNODE_API_KEY) {
 }
 console.log("QUICKNODE READY — RPC:", process.env.QUICKNODE_RPC_URL.slice(0, 50) + "...");
 
-// WEBHOOK URL
 export const WEBHOOK_URL = (() => {
-  const base = process.env.RAILWAY_STATIC_URL || `https://${process.env.RAILWAY_APP_NAME}.up.railway.app`;
+  let base = process.env.RAILWAY_STATIC_URL || `https://${process.env.RAILWAY_APP_NAME}.up.railway.app`;
+  
+  // FORCE HTTPS — this fixes the QuickNode error forever
+  if (base.startsWith("http://")) {
+    base = "https://" + base.slice(7);
+  }
+  if (!base.startsWith("https://")) {
+    base = "https://" + base;
+  }
+  
   const url = `${base.replace(/\/$/, "")}/rug-alert`;
-  console.log("WEBHOOK URL →", url);
+  console.log(`WEBHOOK URL → ${url}`);
   return url;
 })();
 
