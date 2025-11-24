@@ -1,4 +1,4 @@
-// src/index.ts — FINAL HTML VERSION (BEST IN 2025)
+// src/index.ts — FINAL WITH WALLET IN WELCOME (HTML VERSION)
 import { Telegraf } from "telegraf";
 import { watchToken } from "./rug-monitor.js";
 import rugMonitor from "./rug-monitor.js";
@@ -25,6 +25,8 @@ bot.start(async (ctx) => {
     `• Free trial — 2 tokens\n` +
     `• Monthly — <b>$20 USD</b>\n` +
     `• Lifetime — <b>0.45 SOL</b> (one-time)\n\n` +
+    `<b>Payment wallet:</b>\n` +
+    `<code>${PAYMENT_WALLET}</code>\n\n` +
     `Send any pump.fun token to begin`,
     { parse_mode: "HTML" }
   );
@@ -59,7 +61,7 @@ bot.on("text", async (ctx) => {
       await ctx.reply(
         `<b>FREE TRIAL ${user.trials}/2</b>\n` +
         `Protecting <code>${short}</code>\n` +
-        `One more free • Then choose Monthly ($20) or Lifetime (0.45 SOL)`,
+        `One more free • Then send 0.45 SOL to\n<code>${PAYMENT_WALLET}</code>`,
         { parse_mode: "HTML" }
       );
     }
@@ -68,17 +70,15 @@ bot.on("text", async (ctx) => {
   } else {
     await ctx.reply(
       `<b>FREE TRIALS USED (2/2)</b>\n\n` +
-      `<b>Choose your plan:</b>\n\n` +
-      `• Monthly — $20 USD / 30 days\n` +
-      `• Lifetime — 0.45 SOL (one-time)\n\n` +
-      `Send <b>0.45 SOL</b> for lifetime to:\n` +
+      `<b>Unlock lifetime protection</b>\n` +
+      `Send exactly <b>0.45 SOL</b> to:\n\n` +
       `<code>${PAYMENT_WALLET}</code>\n\n` +
-      `<b>Memo:</b> <code>${userId}</code>\n\n` +
-      `Payment detected instantly`,
+      `<b>Memo / Message:</b> <code>${userId}</code>\n\n` +
+      `Payment detected instantly • Lifetime activated forever`,
       { parse_mode: "HTML" }
     );
   }
 });
 
 bot.launch();
-console.log("RUGCHEF LIVE — HTML MODE (BEST)");
+console.log("RUGCHEF LIVE — WALLET SHOWN FROM /start");
