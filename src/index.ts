@@ -6,6 +6,7 @@ import rugMonitor from "./rug-monitor.js";
 const bot = new Telegraf(process.env.BOT_TOKEN!);
 export { bot };
 export const PAYMENT_WALLET = process.env.PAYMENT_WALLET!;
+export const userData = new Map<number, any>();
 
 const userData = new Map<number, { trials: number; plan: "free" | "lifetime" }>();
 
