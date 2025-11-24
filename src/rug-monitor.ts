@@ -59,7 +59,7 @@ export async function watchToken(mint: string, userId: number) {
         accountAddresses: [mint],
         webhookType: WebhookType.ENHANCED,
       });
-      console.log("WEBHOOK CREATED → ID:", webhook.id);
+      console.log("WEBHOOK CREATED → ID:", webhook.webhookID);
     } catch (error: any) {
       console.error("WEBHOOK FAILED →", error.message || error);
       console.log("Polling fallback is active");
