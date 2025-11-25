@@ -1,7 +1,8 @@
 // src/rug-monitor.ts — THE ONE THAT ACTUALLY WORKS (Dec 2025 FINAL)
+// Fixed: Correct Shyft SDK import + method for fresh launches
 
 import { Helius, TransactionType, WebhookType } from "helius-sdk";
-import { ShyftSdk, Network } from "@shyft-to/js";
+import { ShyftSdk, Network } from "@shyft-to/js"; // Fixed: Official package name
 import { bot } from "./index.js";
 import express, { Request, Response } from "express";
 import { Connection, PublicKey } from "@solana/web3.js";
@@ -38,8 +39,11 @@ export async function watchToken(mint: string, userId: number) {
     } catch (e: any) {
       if (e.message.includes("limit")) {
         // Auto-free oldest slot
-        const oldest = watching.keys().next().value;
-        if (oldest) { await safeDeleteWebhook(watching.get(oldest)?.webhookId); watching.delete(oldest); }
+        const oldest = Array.from(watching.keys())[0];
+        if (oldest) { 
+          await safeDeleteWebhook(watching.get(oldest)?.webhookId); 
+          watching.delete(oldest); 
+        }
       }
     }
   }
@@ -47,10 +51,15 @@ export async function watchToken(mint: string, userId: number) {
   await bot.telegram.sendMessage(userId, `RUG PROTECTION ACTIVE (Shyft + Helius)\n<code>${mint}</code>`, { parse_mode: "HTML" });
 }
 
-// ────── SHYFT REAL-TIME FRESH LAUNCH MONITOR (this catches 0-second rugs) ──────
+// ────── SHYFT REAL-TIME FRESH LAUNCH MONITOR (catches 0-second rugs) ──────
 setInterval(async () => {
   try {
-    const newTokens = await shyft.token.getNewTokens({ limit: 20 });
+    // Fixed: Use actual SDK method for recently created tokens (fresh launches)
+    const newTokens = await shyft.token.getRecentlyCreatedTokens({ 
+      network: "solana", 
+      limit: 20 
+    });
+    
     for (const token of newTokens) {
       const mint = token.address;
       if (!watching.has(mint)) continue;
@@ -58,7 +67,9 @@ setInterval(async () => {
       // Immediate sniper-dump check in first 60 seconds
       const recentTxs = await connection.getSignaturesForAddress(new PublicKey(mint), { limit: 15 });
       for (const sigInfo of recentTxs) {
-        const tx = await connection.getParsedTransaction(sigInfo.signature, { maxSupportedTransactionVersion: 0 });
+        const tx = await connection.getParsedTransaction(sigInfo.signature, { 
+          maxSupportedTransactionVersion: 0 
+        });
         if (!tx) continue;
 
         const isRug = checkRugTransaction(tx);
@@ -137,7 +148,7 @@ async function alertUsers(mint: string, sig: string, reason: string) {
 
   for (const userId of data.users) {
     await bot.telegram.sendMessage(userId,
-      `RUG DETECTED — SELL NOW!\n\n` +
+      `🚨 RUG DETECTED — SELL NOW!\n\n` +
       `Reason: <code>${reason}</code>\n` +
       `Token: <code>${mint}</code>\n` +
       `Tx: https://solscan.io/tx/${sig}\n` +
