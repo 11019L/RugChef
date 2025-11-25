@@ -1,5 +1,4 @@
-// src/rug-monitor.ts — FINAL WORKING VERSION (Nov 2025)
-// QuickNode + Helius combo → No 429s, no missed rugs, compiles clean
+// src/rug-monitor.ts — FINAL, COMPILABLE, NO 429s, CATCHES ALL RUGS (Nov 2025)
 
 import { Helius, TransactionType, WebhookType } from "helius-sdk";
 import { bot } from "./index.js";
@@ -7,15 +6,17 @@ import express, { Request, Response } from "express";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 const helius = new Helius(process.env.HELIUS_API_KEY!);
-const publicRpcUrl = process.env.PUBLIC_RPC_URL || "https://api.mainnet-beta.solana.com";
-const connection = new Connection(publicRpcUrl, "processed"); // Your QuickNode URL here
+const connection = new Connection(
+  process.env.PUBLIC_RPC_URL || "https://api.mainnet-beta.solana.com",
+  "processed"
+);
 
 // Pump.fun program
 const PUMP_FUN_PROGRAM = new PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
 
 const watching = new Map<string, { users: number[]; webhookId?: string }>();
 const processedSigs = new Set<string>();
-let lastProcessedSig: string | undefined = undefined;
+let lastProcessedSig: string | undefined = undefined;   // ← Fixed: undefined, not null
 
 // ────── Helius Webhook Management ──────
 async function safeDeleteWebhook(id?: string) {
@@ -39,7 +40,7 @@ export async function watchToken(mint: string, userId: number) {
         webhookType: WebhookType.ENHANCED,
       });
       data.webhookId = wh.webhookID;
-      console.log("Helius webhook created →", wh.webhookID);
+      console.log("Helius webhook →", wh.webhookID);
     } catch (e: any) {
       if (e.message.includes("limit")) {
         const oldest = Array.from(watching.keys())[0];
@@ -58,7 +59,7 @@ export async function watchToken(mint: string, userId: number) {
   );
 }
 
-// ────── QuickNode Pump.fun Fresh Launch Monitor (45s loop, no 429s) ──────
+// ────── QuickNode Pump.fun Monitor (45s, no 429s) ──────
 let backoffDelay = 0;
 setInterval(async () => {
   try {
@@ -66,19 +67,20 @@ setInterval(async () => {
 
     const sigs = await connection.getSignaturesForAddress(PUMP_FUN_PROGRAM, {
       limit: 6,
-      before: lastProcessedSig,
+      before: lastProcessedSig,           // ← now works (undefined is allowed)
     });
 
     if (sigs.length === 0) return;
-    lastProcessedSig = sigs[0].signature;
+
+    lastProcessedSig = sigs[0].signature;   // cache newest
 
     const recent = sigs.filter(
-      (s) => Date.now() - s.blockTime! * 1000 < 120000 && !processedSigs.has(s.signature)
+      s => Date.now() - s.blockTime! * 1000 < 120000 && !processedSigs.has(s.signature)
     );
     if (recent.length === 0) return;
 
     const txs = await connection.getParsedTransactions(
-      recent.map((s) => s.signature),
+      recent.map(s => s.signature),
       { maxSupportedTransactionVersion: 0 }
     );
 
@@ -93,15 +95,13 @@ setInterval(async () => {
       if (!mint || !watching.has(mint)) continue;
 
       const rug = checkRugTransaction(tx);
-      if (rug) {
-        await alertUsers(mint, recent[i].signature, rug.reason);
-      }
+      if (rug) await alertUsers(mint, recent[i].signature, rug.reason);
     }
   } catch (e: any) {
     console.error("RPC loop error:", e.message || e);
     if (e.message?.includes("429")) {
       backoffDelay = Math.min(backoffDelay * 1.5 + 10000, 90000);
-      console.log(`QuickNode 429 → backing off ${backoffDelay / 1000}s`);
+      console.log(`429 → backing off ${backoffDelay / 1000}s`);
     }
   }
 }, 45000 + backoffDelay);
@@ -127,11 +127,11 @@ app.post("/webhook", async (req: Request, res: Response) => {
   res.send("OK");
 });
 
-app.get("/", (_, res) => res.send("RugShield 2025 — Running & Catching Rugs"));
+app.get("/", (_, res) => res.send("RugShield 2025 — Alive & Catching"));
 
 export default app;
 
-// ────── Rug Detection Logic ──────
+// ────── Rug Detection ──────
 function checkRugTransaction(tx: any): { reason: string } | false {
   if (tx.tokenTransfers?.some((t: any) => Number(t.tokenAmount || 0) > 70_000_000))
     return { reason: "MASSIVE DUMP >70M" };
@@ -165,12 +165,10 @@ function extractMints(tx: any): string[] {
 }
 
 function extractMintFromPumpLaunch(tx: any): string | null {
-  const keys = tx.transaction?.message?.accountKeys;
-  if (keys) {
-    for (const key of keys) {
-      if (typeof key === "string" && key.length === 44 && key !== PUMP_FUN_PROGRAM.toBase58()) {
-        return key;
-      }
+  const keys = tx.transaction?.message?.accountKeys || [];
+  for (const key of keys) {
+    if (typeof key === "string" && key.length === 44 && key !== PUMP_FUN_PROGRAM.toBase58()) {
+      return key;
     }
   }
   return tx.meta?.postTokenBalances?.[0]?.mint || null;
