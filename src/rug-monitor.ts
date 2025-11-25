@@ -1,4 +1,4 @@
-// src/rug-monitor.ts — LIMIT-PROOF RUG MONITOR (Dec 2025)
+// src/rug-monitor.ts — LIMIT-PROOF RUG MONITOR (Nov 2025)
 // Single global webhook + client-side filtering = infinite scalability
 
 import { Helius, TransactionType, WebhookType } from "helius-sdk";
@@ -9,7 +9,7 @@ import { Connection } from "@solana/web3.js";
 // ────── Init ──────
 const helius = new Helius(process.env.HELIUS_API_KEY!);
 const connection = new Connection(helius.endpoint);
-const watching = new Map<string, number[]>(); // mint → [userId]
+const watching = new Map<string, number[]>();
 
 // Use your bot's wallet as the "global listener" (or any address you control)
 const GLOBAL_LISTENER = process.env.GLOBAL_LISTENER_WALLET || "YourBotWalletPubkeyHere1111111111111111111111111"; // Replace with real pubkey!
@@ -37,8 +37,8 @@ async function setupGlobalWebhook() {
   } catch (e: any) {
     if (e.message.includes("already exists")) {
       // Fetch existing if it already exists
-      const webhooks = await helius.getWebhooks();
-      const existing = webhooks.find((w: any) => w.accountAddresses[0] === GLOBAL_LISTENER);
+      const webhooks = await helius.getAllWebhooks(); // ← FIXED: Correct SDK method
+      const existing = webhooks.find((w: any) => w.accountAddresses?.[0] === GLOBAL_LISTENER);
       if (existing) {
         globalWebhookId = existing.webhookID;
         console.log("GLOBAL WEBHOOK FOUND (existing) → ID:", globalWebhookId);
