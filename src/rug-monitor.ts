@@ -7,8 +7,7 @@ import express, { Request, Response } from "express";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 const helius = new Helius(process.env.HELIUS_API_KEY!);
-const publicConnection = new Connection("https://api.mainnet-beta.solana.com"); // For sig polling
-const heliusConnection = new Connection(helius.endpoint); // For parsing (higher limits)
+const publicConnection = new Connection(process.env.PUBLIC_RPC_URL || "https://api.mainnet-beta.solana.com");const heliusConnection = new Connection(helius.endpoint); // For parsing (higher limits)
 
 // Pump.fun program ID
 const PUMP_FUN_PROGRAM = new PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
