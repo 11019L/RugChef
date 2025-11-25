@@ -78,6 +78,20 @@ app.post("/webhook", async (req, res) => {
       reason = "MASSIVE DUMP (>40M)";
     }
 
+    const totalSoldByDev = tx.tokenTransfers
+      ?.filter((t: any) => 
+        t.from && 
+        t.from.length === 44 && 
+        !t.from.includes("pump") && 
+        !t.from.includes("raydium")
+      )
+      ?.reduce((sum: number, t: any) => sum + Number(t.tokenAmount || 0), 0) || 0;
+
+    if (totalSoldByDev > 90_000_000) {
+      isRug = true;
+      reason = reason || `DEV DUMP ${(totalSoldByDev/1_000_000).toFixed(0)}M`;
+    }
+
     // 2. LP drain
     if (tx.nativeTransfers?.some((t: any) => t.amount < -1_500_000_000)) {
       isRug = true;
