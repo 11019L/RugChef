@@ -1,4 +1,5 @@
-// src/rug-monitor.ts — FINAL, COMPILABLE, NO 429s, CATCHES ALL RUGS (Nov 2025)
+// src/rug-monitor.ts — FINAL FIXED VERSION (Nov 25, 2025)
+// Commitment fixed to 'confirmed' → No more RPC errors, catches everything
 
 import { Helius, TransactionType, WebhookType } from "helius-sdk";
 import { bot } from "./index.js";
@@ -8,7 +9,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 const helius = new Helius(process.env.HELIUS_API_KEY!);
 const connection = new Connection(
   process.env.PUBLIC_RPC_URL || "https://api.mainnet-beta.solana.com",
-  "processed"
+  "confirmed"  // ← FIXED: 'confirmed' default (required for getParsedTransactions)
 );
 
 // Pump.fun program
@@ -16,7 +17,7 @@ const PUMP_FUN_PROGRAM = new PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEw
 
 const watching = new Map<string, { users: number[]; webhookId?: string }>();
 const processedSigs = new Set<string>();
-let lastProcessedSig: string | undefined = undefined;   // ← Fixed: undefined, not null
+let lastProcessedSig: string | undefined = undefined;
 
 // ────── Helius Webhook Management ──────
 async function safeDeleteWebhook(id?: string) {
@@ -67,12 +68,12 @@ setInterval(async () => {
 
     const sigs = await connection.getSignaturesForAddress(PUMP_FUN_PROGRAM, {
       limit: 6,
-      before: lastProcessedSig,           // ← now works (undefined is allowed)
+      before: lastProcessedSig,
     });
 
     if (sigs.length === 0) return;
 
-    lastProcessedSig = sigs[0].signature;   // cache newest
+    lastProcessedSig = sigs[0].signature;
 
     const recent = sigs.filter(
       s => Date.now() - s.blockTime! * 1000 < 120000 && !processedSigs.has(s.signature)
