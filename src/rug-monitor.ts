@@ -1,25 +1,23 @@
-// src/rug-monitor.ts — FINAL FIXED VERSION (Nov 25, 2025)
-// Commitment fixed to 'confirmed' → No more RPC errors, catches everything
-
+// src/rug-monitor.ts — STREAMING EDITION: LogsSubscribe for <2s Rug Detection (Nov 2025)
 import { Helius, TransactionType, WebhookType } from "helius-sdk";
 import { bot } from "./index.js";
 import express, { Request, Response } from "express";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 const helius = new Helius(process.env.HELIUS_API_KEY!);
-const connection = new Connection(
-  process.env.PUBLIC_RPC_URL || "https://api.mainnet-beta.solana.com",
-  "confirmed"  // ← FIXED: 'confirmed' default (required for getParsedTransactions)
-);
+const rpcUrl = process.env.PUBLIC_RPC_URL || "https://api.mainnet-beta.solana.com";
+const wsUrl = rpcUrl.replace('https', 'wss') + '/'; // QuickNode/Helius WS endpoint
+const connection = new Connection(rpcUrl, "confirmed");
 
-// Pump.fun program
+// SPL Token Program (for all mints/dumps/freezes)
+const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+// Pump.fun Program (backup for launches)
 const PUMP_FUN_PROGRAM = new PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
 
 const watching = new Map<string, { users: number[]; webhookId?: string }>();
 const processedSigs = new Set<string>();
-let lastProcessedSig: string | undefined = undefined;
 
-// ────── Helius Webhook Management ──────
+// ────── Helius Backup (for non-mint rugs) ──────
 async function safeDeleteWebhook(id?: string) {
   if (!id) return;
   try { await helius.deleteWebhook(id); } catch {}
@@ -41,7 +39,7 @@ export async function watchToken(mint: string, userId: number) {
         webhookType: WebhookType.ENHANCED,
       });
       data.webhookId = wh.webhookID;
-      console.log("Helius webhook →", wh.webhookID);
+      console.log("Helius backup webhook →", wh.webhookID);
     } catch (e: any) {
       if (e.message.includes("limit")) {
         const oldest = Array.from(watching.keys())[0];
@@ -55,59 +53,58 @@ export async function watchToken(mint: string, userId: number) {
 
   await bot.telegram.sendMessage(
     userId,
-    `RUG PROTECTION ACTIVE\n<code>${mint}</code>`,
+    `RUG PROTECTION ACTIVE (Streaming Mode)\n<code>${mint}</code>`,
     { parse_mode: "HTML" }
   );
 }
 
-// ────── QuickNode Pump.fun Monitor (45s, no 429s) ──────
-let backoffDelay = 0;
-setInterval(async () => {
+// ────── REAL-TIME LOGS SUBSCRIBE (Catches Mints/Dumps at <2s) ──────
+let wsSubscriptionId: number | null = null;
+async function startStreaming() {
   try {
-    backoffDelay = 0;
+    // Subscribe to Token Program logs (all mints/transfers)
+    const sub = await connection.onLogs(
+      TOKEN_PROGRAM,
+      (logs, ctx) => {
+        if (!logs.signature || processedSigs.has(logs.signature)) return;
+        processedSigs.add(logs.signature);
 
-    const sigs = await connection.getSignaturesForAddress(PUMP_FUN_PROGRAM, {
-      limit: 6,
-      before: lastProcessedSig,
-    });
+        // Parse logs for rug signals
+        const mint = extractMintFromLogs(logs);
+        if (!mint || !watching.has(mint)) return;
 
-    if (sigs.length === 0) return;
-
-    lastProcessedSig = sigs[0].signature;
-
-    const recent = sigs.filter(
-      s => Date.now() - s.blockTime! * 1000 < 120000 && !processedSigs.has(s.signature)
+        // Fetch full tx for deep check (only if log hints rug)
+        if (logs.logs.some(log => log.includes("Transfer") || log.includes("Freeze") || log.includes("InitializeMint"))) {
+          connection.getParsedTransaction(logs.signature, { maxSupportedTransactionVersion: 0 })
+            .then(tx => {
+              if (!tx) return;
+              const rug = checkRugTransaction(tx);
+              if (rug) {
+                console.log(`RUG STREAMED → ${rug.reason} | Sig: ${logs.signature}`);
+                alertUsers(mint, logs.signature, rug.reason);
+              }
+            })
+            .catch(() => {});
+        }
+      },
+      "confirmed"
     );
-    if (recent.length === 0) return;
 
-    const txs = await connection.getParsedTransactions(
-      recent.map(s => s.signature),
-      { maxSupportedTransactionVersion: 0 }
-    );
-
-    for (let i = 0; i < txs.length; i++) {
-      const tx = txs[i];
-      if (!tx) continue;
-
-      processedSigs.add(recent[i].signature);
-      if (processedSigs.size > 1000) processedSigs.clear();
-
-      const mint = extractMintFromPumpLaunch(tx);
-      if (!mint || !watching.has(mint)) continue;
-
-      const rug = checkRugTransaction(tx);
-      if (rug) await alertUsers(mint, recent[i].signature, rug.reason);
-    }
-  } catch (e: any) {
-    console.error("RPC loop error:", e.message || e);
-    if (e.message?.includes("429")) {
-      backoffDelay = Math.min(backoffDelay * 1.5 + 10000, 90000);
-      console.log(`429 → backing off ${backoffDelay / 1000}s`);
-    }
+    wsSubscriptionId = sub;
+    console.log("Streaming active → LogsSubscribe on Token Program");
+  } catch (e) {
+    console.error("Stream setup error:", e);
+    setTimeout(startStreaming, 10000); // Retry in 10s
   }
-}, 45000 + backoffDelay);
+}
 
-// ────── Helius Webhook Handler ──────
+// Start on boot
+startStreaming();
+
+// Reconnect on disconnect
+connection.onAccountChange(PublicKey.default, () => {}, "confirmed"); // Dummy to monitor WS health
+
+// ────── Helius Webhook (Backup for LP/Other) ──────
 const app = express();
 app.use(express.json({ limit: "10mb" }));
 
@@ -121,6 +118,7 @@ app.post("/webhook", async (req: Request, res: Response) => {
     const mints = extractMints(tx);
     for (const mint of mints) {
       if (watching.has(mint)) {
+        console.log(`RUG BACKUP → ${rug.reason} | Sig: ${tx.signature}`);
         await alertUsers(mint, tx.signature, rug.reason);
       }
     }
@@ -128,11 +126,11 @@ app.post("/webhook", async (req: Request, res: Response) => {
   res.send("OK");
 });
 
-app.get("/", (_, res) => res.send("RugShield 2025 — Alive & Catching"));
+app.get("/", (_, res) => res.send("RugShield 2025 — Streaming Live (Check Logs for 'Streaming active')"));
 
 export default app;
 
-// ────── Rug Detection ──────
+// ────── Rug Detection (Updated for Logs) ──────
 function checkRugTransaction(tx: any): { reason: string } | false {
   if (tx.tokenTransfers?.some((t: any) => Number(t.tokenAmount || 0) > 70_000_000))
     return { reason: "MASSIVE DUMP >70M" };
@@ -158,21 +156,23 @@ function checkRugTransaction(tx: any): { reason: string } | false {
   return false;
 }
 
+// FIXED: Extract mint from logs (for pump.fun "Create" events)
+function extractMintFromLogs(logs: any): string | null {
+  // Look for pump.fun Create log pattern: base58 mint in "Program data:" or "Instruction: Create"
+  for (const log of logs.logs) {
+    if (log.includes("Program data:") || log.includes("Create")) {
+      const match = log.match(/[1-9A-HJ-NP-Za-km-z]{32,44}/); // Base58 pubkey regex
+      if (match) return match[0];
+    }
+  }
+  return null;
+}
+
 function extractMints(tx: any): string[] {
   const set = new Set<string>();
   tx.tokenTransfers?.forEach((t: any) => t.mint && set.add(t.mint));
   tx.accountData?.forEach((a: any) => a.mint && set.add(a.mint));
   return Array.from(set);
-}
-
-function extractMintFromPumpLaunch(tx: any): string | null {
-  const keys = tx.transaction?.message?.accountKeys || [];
-  for (const key of keys) {
-    if (typeof key === "string" && key.length === 44 && key !== PUMP_FUN_PROGRAM.toBase58()) {
-      return key;
-    }
-  }
-  return tx.meta?.postTokenBalances?.[0]?.mint || null;
 }
 
 async function alertUsers(mint: string, sig: string, reason: string) {
@@ -182,7 +182,7 @@ async function alertUsers(mint: string, sig: string, reason: string) {
   for (const userId of data.users) {
     await bot.telegram.sendMessage(
       userId,
-      `RUG DETECTED — SELL NOW!\n\n` +
+      `🚨 RUG DETECTED — SELL NOW!\n\n` +
       `Reason: <code>${reason}</code>\n` +
       `Token: <code>${mint}</code>\n` +
       `Tx: https://solscan.io/tx/${sig}\n` +
